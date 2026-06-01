@@ -1,0 +1,145 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
+
+export type Bucket = 'day' | 'week' | 'month' | 'year';
+export type StudentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
+export type StudentStatusFilter = 'ALL' | StudentStatus;
+
+export interface ReportsSummary {
+  dateFrom: string;
+  dateTo: string;
+  branchId: string | null;
+  kpis: {
+    totalExpected: number;
+    totalCollected: number;
+    totalPending: number;
+    outstanding: number;
+    coveragePct: number;
+    studentCount: number;
+    paidCount: number;
+    partialCount: number;
+    unpaidCount: number;
+  };
+  comparison: {
+    previousFrom: string;
+    previousTo: string;
+    previousCollected: number;
+    previousTransactions: number;
+    collectedDeltaAmount: number;
+    collectedDeltaPct: number | null;
+    transactionsDeltaPct: number | null;
+  };
+  topPayers: {
+    studentId: string;
+    code: string;
+    fullName: string;
+    phone: string;
+    paidAmount: number;
+    status: StudentStatus;
+  }[];
+  topOutstanding: {
+    studentId: string;
+    code: string;
+    fullName: string;
+    phone: string;
+    balance: number;
+    status: StudentStatus;
+  }[];
+}
+
+export type AgingBucketKey = 'CURRENT' | 'D_1_30' | 'D_31_60' | 'D_61_90' | 'D_90_PLUS';
+
+export interface AgingBucket {
+  bucket: AgingBucketKey;
+  label: string;
+  studentCount: number;
+  allocCount: number;
+  totalAmount: number;
+}
+
+export interface AgingResponse {
+  buckets: AgingBucket[];
+  totalAtRisk: number;
+}
+
+export interface TimeseriesPoint {
+  bucketStart: string;
+  label: string;
+  paymentCount: number;
+  totalAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  refundedAmount: number;
+  failedAmount: number;
+}
+
+export interface StudentSummaryRow {
+  studentId: string;
+  code: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  branchId: string;
+  branchName: string | null;
+  expectedAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  balance: number;
+  paymentCount: number;
+  lastPaymentAt: string | null;
+  status: StudentStatus;
+}
+
+export interface MethodBreakdownRow {
+  method: string;
+  paymentCount: number;
+  totalAmount: number;
+  pctOfTotal: number;
+}
+
+export interface RangeOpts {
+  dateFrom: string;
+  dateTo: string;
+  branchId?: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class ReportsApiService {
+  private http = inject(HttpClient);
+  private base = `${environment.apiUrl}/reports`;
+
+  summary(opts: RangeOpts) {
+    return this.http.get<ReportsSummary>(`${this.base}/summary`, { params: this.params(opts) });
+  }
+
+  timeseries(opts: RangeOpts & { bucket: Bucket }) {
+    return this.http.get<TimeseriesPoint[]>(`${this.base}/timeseries`, {
+      params: this.params(opts).set('bucket', opts.bucket),
+    });
+  }
+
+  students(opts: RangeOpts & { status?: StudentStatusFilter }) {
+    let p = this.params(opts);
+    if (opts.status) p = p.set('status', opts.status);
+    return this.http.get<StudentSummaryRow[]>(`${this.base}/students`, { params: p });
+  }
+
+  methods(opts: RangeOpts) {
+    return this.http.get<MethodBreakdownRow[]>(`${this.base}/methods`, { params: this.params(opts) });
+  }
+
+  aging(branchId?: string) {
+    let p = new HttpParams();
+    if (branchId) p = p.set('branchId', branchId);
+    return this.http.get<AgingResponse>(`${this.base}/aging`, { params: p });
+  }
+
+  private params(opts: RangeOpts): HttpParams {
+    let p = new HttpParams()
+      .set('dateFrom', opts.dateFrom)
+      .set('dateTo', opts.dateTo);
+    if (opts.branchId) p = p.set('branchId', opts.branchId);
+    return p;
+  }
+}

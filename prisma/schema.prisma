@@ -1,0 +1,575 @@
+// LMS Platform — Multi-tenant SaaS Library & Study Cabin Management
+// All business tables include `tenantId` to enforce tenant isolation at the DB layer.
+// Queries MUST be scoped by tenantId through the TenantPrismaService (see apps/api).
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// PLATFORM-LEVEL (no tenantId — managed by SuperAdmin)
+// ============================================================
+
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  email       String
+  phone       String?
+  status      TenantStatus @default(ACTIVE)
+  plan        String   @default("starter") // starter | growth | enterprise
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branches     Branch[]
+  users        User[]
+  students     Student[]
+  seats        Seat[]
+  attendance   Attendance[]
+  payments     Payment[]
+  featureFlags FeatureFlag[]
+  plans        StudentPlan[]
+  examTargets  ExamTarget[]
+  notifications Notification[]
+  auditLogs    AuditLog[]
+  pgRooms      PgRoom[]
+  pgRoomAssignments PgRoomAssignment[]
+  setting      TenantSetting?
+
+  @@index([status])
+  @@map("tenants")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+// SuperAdmin lives outside any tenant.
+model PlatformAdmin {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("platform_admins")
+}
+
+// ============================================================
+// TENANT-SCOPED
+// ============================================================
+
+model Branch {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  code        String   // unique per tenant
+  address     String?
+  city        String?
+  state       String?
+  pincode     String?
+  phone       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       User[]
+  students    Student[]
+  seats       Seat[]
+  attendance  Attendance[]
+  payments    Payment[]
+  pgRooms     PgRoom[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("branches")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  branchId     String?
+  email        String
+  passwordHash String
+  fullName     String
+  phone        String?
+  role         UserRole
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  auditLogs    AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@map("users")
+}
+
+enum UserRole {
+  CLIENT_ADMIN
+  BRANCH_ADMIN
+  STAFF
+}
+
+model Student {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  branchId           String
+  code               String   // unique per tenant, e.g. STU-0001
+  fullName           String
+  email              String?
+  phone              String
+  gender             Gender?
+  dateOfBirth        DateTime?
+
+  // KYC
+  aadhaarNumber      String?  // 12 digits, India national ID
+  voterId            String?  // EPIC card number
+
+  // Family / emergency
+  fatherName         String?
+  motherName         String?
+  emergencyContact   String?  // phone of next-of-kin
+
+  // Address (split into permanent vs temporary — India context)
+  permanentAddress   String?
+  temporaryAddress   String?
+
+  // Academic context
+  examTarget         String?  // e.g. UPSC, SSC, Banking, NEET, JEE
+
+  photoUrl           String?
+  idProofUrl         String?
+  status             StudentStatus @default(ACTIVE)
+
+  joinedAt           DateTime @default(now())   // registration date
+  expiresAt          DateTime?                  // membership/plan expiry
+
+  qrCode             String   @unique @default(uuid()) // scanned for attendance
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  seatAssignments SeatAssignment[]
+  attendance    Attendance[]
+  payments      Payment[]
+  planEnrollments StudentPlanEnrollment[]
+  pgRoomAssignments PgRoomAssignment[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, phone])
+  @@index([tenantId, branchId])
+  @@index([tenantId, status])
+  @@map("students")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Seat {
+  id            String   @id @default(uuid())
+  tenantId      String
+  branchId      String
+  code          String   // e.g. A-12 (cabin/seat number) — unique per branch
+  type          SeatType @default(SEAT)
+  floor         String?
+  zone          String?  // section/zone label
+  amenities     String[] // ["AC", "wifi", "locker", "power", "24x7"]
+  monthlyRates  Json?    // per-shift INR pricing, e.g. { "MORNING": 800, "AFTERNOON": 800, "FULL_DAY": 1500 }
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  assignments SeatAssignment[]
+
+  @@unique([tenantId, branchId, code])
+  @@index([tenantId, branchId])
+  @@map("seats")
+}
+
+enum SeatType {
+  SEAT
+  CABIN
+  HOT_DESK
+}
+
+model SeatAssignment {
+  id          String   @id @default(uuid())
+  tenantId    String
+  seatId      String
+  studentId   String
+  shift       Shift
+  startDate   DateTime
+  endDate     DateTime?
+  /// TEMPORARY = allocated but <50% paid; CONFIRMED = >=50% paid; ENDED = ended.
+  /// TEMPORARY and CONFIRMED both block the (seat, shift) from being re-allocated.
+  status      SeatAssignmentStatus @default(TEMPORARY)
+  /// Monthly rate snapshot at allocation time. Used for the 50% confirmation
+  /// threshold so subsequent rate changes don't shift the bar retroactively.
+  monthlyRate Decimal? @db.Decimal(10, 2)
+  /// Next installment due date — drives the "overdue" / "due soon" alerts.
+  /// Updated whenever staff record a payment from the Payments screen.
+  nextDueDate DateTime?
+  createdAt   DateTime @default(now())
+
+  seat        Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, nextDueDate])
+  @@index([tenantId, seatId, status])
+  @@index([tenantId, studentId, status])
+  @@map("seat_assignments")
+}
+
+enum SeatAssignmentStatus {
+  TEMPORARY
+  CONFIRMED
+  ENDED
+}
+
+enum Shift {
+  MORNING
+  AFTERNOON
+  EVENING
+  NIGHT
+  FULL_DAY
+}
+
+model Attendance {
+  id          String   @id @default(uuid())
+  tenantId    String
+  branchId    String
+  studentId   String
+  date        DateTime @db.Date
+  checkInAt   DateTime
+  checkOutAt  DateTime?
+  source      AttendanceSource @default(QR)
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date])
+  @@index([tenantId, date])
+  @@index([tenantId, branchId, date])
+  @@map("attendance")
+}
+
+enum AttendanceSource {
+  QR
+  MANUAL
+  BIOMETRIC
+}
+
+model StudentPlan {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String   // e.g. "Monthly AC Cabin"
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  durationDays Int     // 30, 60, 90...
+  shift       Shift?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enrollments StudentPlanEnrollment[]
+
+  @@index([tenantId])
+  @@map("student_plans")
+}
+
+model ExamTarget {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  isCustom  Boolean  @default(false) // false = seeded default (UPSC, SSC...); true = user-added
+  createdAt DateTime @default(now())
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("exam_targets")
+}
+
+model StudentPlanEnrollment {
+  id          String   @id @default(uuid())
+  tenantId    String
+  studentId   String
+  planId      String
+  startDate   DateTime
+  endDate     DateTime
+  amount      Decimal  @db.Decimal(10, 2)
+  status      EnrollmentStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  plan        StudentPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payments    Payment[]
+
+  @@index([tenantId, studentId])
+  @@index([tenantId, endDate]) // for due-alert cron
+  @@map("student_plan_enrollments")
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  tenantId      String
+  branchId      String
+  studentId     String
+  enrollmentId  String?
+  amount        Decimal  @db.Decimal(10, 2)
+  currency      String   @default("INR")
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  // Razorpay refs (null until gateway flow used)
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String? @unique
+  razorpaySignature String?
+  receiptNumber String?
+  paidAt        DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrollment    StudentPlanEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, studentId, createdAt])
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  NETBANKING
+  RAZORPAY
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+// ============================================================
+// PG ROOMS (paying-guest accommodation alongside library seats)
+// ============================================================
+
+model PgRoom {
+  id            String     @id @default(uuid())
+  tenantId      String
+  branchId      String
+  roomNumber    String     // unique per branch, e.g. "F-25", "101"
+  type          PgRoomType @default(SINGLE)
+  bedCount      Int        // 1 for SINGLE, 2 for DOUBLE, 3 for TRIPLE; allow override for custom
+  monthlyRate   Decimal    @db.Decimal(10, 2)  // per bed, per month
+  floor         String?
+  notes         String?
+  amenities     String[]   // ["AC", "wifi", "attached-bath", "balcony"]
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  assignments   PgRoomAssignment[]
+
+  @@unique([tenantId, branchId, roomNumber])
+  @@index([tenantId, branchId])
+  @@map("pg_rooms")
+}
+
+enum PgRoomType {
+  SINGLE
+  DOUBLE
+  TRIPLE
+}
+
+model PgRoomAssignment {
+  id          String   @id @default(uuid())
+  tenantId    String
+  roomId      String
+  studentId   String
+  bedNumber   Int      // 1..bedCount
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  monthlyRate Decimal? @db.Decimal(10, 2) // snapshot of rate at allocation time
+  nextDueDate DateTime?                   // mirrors seat-assignments pattern
+  status      PgAssignmentStatus @default(ACTIVE)
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  room        PgRoom   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, roomId, status])
+  @@index([tenantId, studentId, status])
+  @@index([tenantId, nextDueDate])
+  @@map("pg_room_assignments")
+}
+
+enum PgAssignmentStatus {
+  ACTIVE
+  ENDED
+}
+
+// ============================================================
+// TENANT SETTINGS (per-tenant JSON blob: SMS, biometric, security, backup, etc.)
+// ============================================================
+
+model TenantSetting {
+  id        String   @id @default(uuid())
+  tenantId  String   @unique
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_settings")
+}
+
+// ============================================================
+// FEATURE FLAGS (per-tenant toggles managed by SuperAdmin)
+// ============================================================
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  tenantId    String
+  key         FeatureKey
+  enabled     Boolean  @default(false)
+  config      Json?    // optional per-feature settings
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("feature_flags")
+}
+
+enum FeatureKey {
+  QR_ATTENDANCE
+  WHATSAPP
+  REPORTS
+  ANALYTICS
+  MULTI_BRANCH
+  PAYMENT_GATEWAY
+  EXPORTS
+}
+
+// ============================================================
+// NOTIFICATIONS & AUDIT
+// ============================================================
+
+model Notification {
+  id          String   @id @default(uuid())
+  tenantId    String
+  type        NotificationType
+  channel     NotificationChannel
+  recipient   String   // phone, email, or userId
+  subject     String?
+  body        String
+  status      NotificationStatus @default(QUEUED)
+  metadata    Json?
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  DUE_ALERT
+  PAYMENT_RECEIVED
+  ATTENDANCE_REMINDER
+  PLAN_EXPIRY
+  CUSTOM
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+  IN_APP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+  DELIVERED
+  READ
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String?
+  action      String   // CREATE_STUDENT, UPDATE_SEAT, ...
+  entity      String   // students, seats, payments
+  entityId    String?
+  diff        Json?    // before/after snapshot
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entity, entityId])
+  @@map("audit_logs")
+}
