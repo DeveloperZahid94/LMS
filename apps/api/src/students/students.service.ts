@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
@@ -136,7 +137,11 @@ export class StudentsService {
           examTarget: dto.examTarget ?? null,
           photoUrl: dto.photoUrl ?? null,
           idProofUrl: dto.idProofUrl ?? null,
+          aadhaarFrontUrl: dto.aadhaarFrontUrl ?? null,
+          aadhaarBackUrl: dto.aadhaarBackUrl ?? null,
+          voterIdUrl: dto.voterIdUrl ?? null,
           expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+          status: dto.status ?? undefined,
         },
       });
     } catch (err) {
@@ -165,7 +170,7 @@ export class StudentsService {
       'branchId', 'fullName', 'email', 'phone', 'gender',
       'aadhaarNumber', 'voterId', 'fatherName', 'motherName', 'emergencyContact',
       'permanentAddress', 'temporaryAddress', 'examTarget',
-      'photoUrl', 'idProofUrl', 'status',
+      'photoUrl', 'idProofUrl', 'aadhaarFrontUrl', 'aadhaarBackUrl', 'voterIdUrl', 'status',
     ];
     for (const f of fields) {
       if (dto[f] !== undefined) data[f] = dto[f];
@@ -214,6 +219,32 @@ export class StudentsService {
       diff: { before: existing },
     });
     return { id: existing.id, deleted: true };
+  }
+
+  /** Admin reset of a student's kiosk password — returns a temp password to share, forces change. */
+  async resetPassword(id: string, newPassword?: string) {
+    const existing = await this.findOne(id);
+    const tempPassword = newPassword?.trim() || this.generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    await this.prisma.student.update({
+      where: { id: existing.id },
+      data: { passwordHash, mustChangePassword: true },
+    });
+    await this.audit.record({
+      tenantId: existing.tenantId,
+      userId: this.tenantCtx.userId,
+      action: 'RESET_STUDENT_PASSWORD',
+      entity: 'students',
+      entityId: existing.id,
+    });
+    return { studentId: existing.id, tempPassword };
+  }
+
+  private generateTempPassword(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const block = (n: number) =>
+      Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    return `Stu-${block(4)}`;
   }
 
   /** Generates next sequential code like STU-0001 per-tenant. */

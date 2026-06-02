@@ -18,29 +18,12 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto): Promise<AuthResponse> {
-    // Try platform-admin first if no tenant supplied
+    // Tenant/staff login only. SuperAdmin must use the dedicated platform console
+    // login (POST /auth/superadmin-login) — they cannot sign in here.
     if (!dto.tenantSlug) {
-      const platformAdmin = await this.prisma.platformAdmin.findUnique({
-        where: { email: dto.email },
-      });
-      if (platformAdmin) {
-        const ok = await bcrypt.compare(dto.password, platformAdmin.passwordHash);
-        if (!ok) throw new UnauthorizedException('Invalid credentials');
-        if (!platformAdmin.isActive) throw new UnauthorizedException('Account disabled');
-        return this.buildAuthResponse(
-          {
-            id: platformAdmin.id,
-            email: platformAdmin.email,
-            fullName: platformAdmin.fullName,
-            role: UserRole.SUPER_ADMIN,
-            tenantId: null,
-            tenantSlug: null,
-            branchId: null,
-          },
-          [],
-        );
-      }
-      throw new BadRequestException('tenantSlug is required for non-SuperAdmin login');
+      throw new BadRequestException(
+        'Tenant is required. Platform owners must use the SuperAdmin console login.',
+      );
     }
 
     const tenant = await this.prisma.tenant.findUnique({ where: { slug: dto.tenantSlug } });
@@ -73,9 +56,96 @@ export class AuthService {
         tenantId: tenant.id,
         tenantSlug: tenant.slug,
         branchId: user.branchId,
+        mustChangePassword: user.mustChangePassword,
       },
       features,
     );
+  }
+
+  /**
+   * Password-only platform-owner login. Matches the secret against any active
+   * PlatformAdmin (there's normally one). No email/tenant needed.
+   */
+  async superAdminLogin(password: string): Promise<AuthResponse> {
+    if (!password) throw new UnauthorizedException('Password is required');
+    const admins = await this.prisma.platformAdmin.findMany({ where: { isActive: true } });
+    for (const admin of admins) {
+      if (await bcrypt.compare(password, admin.passwordHash)) {
+        return this.buildAuthResponse(
+          {
+            id: admin.id,
+            email: admin.email,
+            fullName: admin.fullName,
+            role: UserRole.SUPER_ADMIN,
+            tenantId: null,
+            tenantSlug: null,
+            branchId: null,
+            mustChangePassword: false,
+          },
+          [],
+        );
+      }
+    }
+    throw new UnauthorizedException('Invalid password');
+  }
+
+  /**
+   * Student self-service login for the check-in kiosk. Identity = tenant slug +
+   * student code + password. Until a student sets a password, their phone number
+   * is the default password (so existing students can log in with no provisioning).
+   */
+  async studentLogin(dto: { tenantSlug?: string; code?: string; password?: string }): Promise<AuthResponse> {
+    if (!dto.tenantSlug || !dto.code || !dto.password) {
+      throw new BadRequestException('Tenant, student code and password are required');
+    }
+    const tenant = await this.prisma.tenant.findUnique({ where: { slug: dto.tenantSlug } });
+    if (!tenant) throw new UnauthorizedException('Invalid tenant or credentials');
+    if (tenant.status !== 'ACTIVE' && tenant.status !== 'TRIAL') {
+      throw new UnauthorizedException('Tenant is not active');
+    }
+    const student = await this.prisma.student.findFirst({
+      where: { tenantId: tenant.id, code: dto.code.trim() },
+    });
+    if (!student || student.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Invalid student code or password (account must be active)');
+    }
+    const ok = student.passwordHash
+      ? await bcrypt.compare(dto.password, student.passwordHash)
+      : dto.password.trim() === student.phone; // default password = phone until one is set
+    if (!ok) throw new UnauthorizedException('Invalid student code or password');
+
+    return this.buildAuthResponse(
+      {
+        id: student.id,
+        email: student.code,
+        fullName: student.fullName,
+        role: UserRole.STUDENT,
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        branchId: student.branchId,
+        mustChangePassword: student.mustChangePassword,
+      },
+      [],
+    );
+  }
+
+  /** A student changing their own kiosk password. Current = stored hash, or phone if unset. */
+  async studentChangePassword(studentId: string, dto: { currentPassword: string; newPassword: string }) {
+    const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+    if (!student) throw new UnauthorizedException('Student not found');
+    const ok = student.passwordHash
+      ? await bcrypt.compare(dto.currentPassword, student.passwordHash)
+      : dto.currentPassword?.trim() === student.phone;
+    if (!ok) throw new BadRequestException('Current password is incorrect');
+    if (!dto.newPassword || dto.newPassword.length < 6) {
+      throw new BadRequestException('New password must be at least 6 characters');
+    }
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.student.update({
+      where: { id: studentId },
+      data: { passwordHash, mustChangePassword: false },
+    });
+    return { ok: true };
   }
 
   async getProfile(userId: string) {
@@ -111,7 +181,10 @@ export class AuthService {
       throw new BadRequestException('New password must be at least 8 characters');
     }
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: false, passwordChangedAt: new Date() },
+    });
     return { ok: true };
   }
 

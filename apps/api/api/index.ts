@@ -12,8 +12,12 @@ let cachedHandler: ReturnType<typeof serverless> | null = null;
 
 async function buildHandler() {
   const expressApp: Express = express();
+  // Raise body limit so base64 photo / ID-scan data URLs aren't rejected (default 100kb).
+  expressApp.use(express.json({ limit: '15mb' }));
+  expressApp.use(express.urlencoded({ extended: true, limit: '15mb' }));
   const app = await NestFactory.create(AppModule, new ExpressAdapter(expressApp), {
     logger: ['error', 'warn'],
+    bodyParser: false,
   });
 
   const prefix = process.env.API_PREFIX ?? 'api';

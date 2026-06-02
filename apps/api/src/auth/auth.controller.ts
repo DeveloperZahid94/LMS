@@ -18,6 +18,24 @@ export class AuthController {
     return this.auth.login(dto);
   }
 
+  @Public()
+  @Post('superadmin-login')
+  superAdminLogin(@Body() dto: { password: string }) {
+    return this.auth.superAdminLogin(dto?.password);
+  }
+
+  @Public()
+  @Post('student-login')
+  studentLogin(@Body() dto: { tenantSlug?: string; code?: string; password?: string }) {
+    return this.auth.studentLogin(dto);
+  }
+
+  @ApiBearerAuth()
+  @Post('student-change-password')
+  studentChangePassword(@CurrentUser() user: JwtPayload, @Body() dto: { currentPassword: string; newPassword: string }) {
+    return this.auth.studentChangePassword(user.sub, dto);
+  }
+
   @ApiBearerAuth()
   @Get('me')
   me(@CurrentUser() user: JwtPayload) {

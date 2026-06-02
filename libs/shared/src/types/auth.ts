@@ -15,6 +15,7 @@ export interface AuthUser {
   tenantId: string | null;
   tenantSlug: string | null;
   branchId: string | null;
+  mustChangePassword?: boolean;
 }
 
 export interface AuthResponse {

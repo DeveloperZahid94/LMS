@@ -2,6 +2,7 @@ export enum AttendanceSource {
   QR = 'QR',
   MANUAL = 'MANUAL',
   BIOMETRIC = 'BIOMETRIC',
+  SELF = 'SELF',
 }
 
 export interface Attendance {

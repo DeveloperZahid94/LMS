@@ -107,6 +107,8 @@ model User {
   phone        String?
   role         UserRole
   isActive     Boolean  @default(true)
+  mustChangePassword Boolean @default(false)
+  passwordChangedAt  DateTime?
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -156,6 +158,12 @@ model Student {
 
   photoUrl           String?
   idProofUrl         String?
+  aadhaarFrontUrl    String?
+  aadhaarBackUrl     String?
+  voterIdUrl         String?
+  // Self-service (kiosk) login credentials
+  passwordHash       String?
+  mustChangePassword Boolean @default(false)
   status             StudentStatus @default(ACTIVE)
 
   joinedAt           DateTime @default(now())   // registration date
@@ -190,6 +198,7 @@ enum StudentStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
+  PENDING
 }
 
 model Seat {
@@ -274,6 +283,13 @@ model Attendance {
   checkOutAt  DateTime?
   source      AttendanceSource @default(QR)
   notes       String?
+  // Self check-in capture (geolocation + selfie data URL)
+  checkInLat       Float?
+  checkInLng       Float?
+  checkInSelfieUrl String?
+  checkOutLat       Float?
+  checkOutLng       Float?
+  checkOutSelfieUrl String?
   createdAt   DateTime @default(now())
 
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -290,6 +306,7 @@ enum AttendanceSource {
   QR
   MANUAL
   BIOMETRIC
+  SELF
 }
 
 model StudentPlan {
@@ -369,6 +386,10 @@ model Payment {
   receiptNumber String?
   paidAt        DateTime?
   notes         String?
+  // Soft delete — kept for audit; hidden from all UI/totals.
+  deletedAt     DateTime?
+  deletedReason String?
+  deletedById   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -505,6 +526,12 @@ enum FeatureKey {
   MULTI_BRANCH
   PAYMENT_GATEWAY
   EXPORTS
+  PG_ROOMS
+  DASHBOARD
+  STUDENTS
+  SEATS
+  ALERTS
+  SETTINGS
 }
 
 // ============================================================
@@ -556,20 +583,26 @@ enum NotificationStatus {
 
 model AuditLog {
   id          String   @id @default(uuid())
-  tenantId    String
+  tenantId    String?  // null for platform-level (SuperAdmin) actions
   userId      String?
-  action      String   // CREATE_STUDENT, UPDATE_SEAT, ...
-  entity      String   // students, seats, payments
+  action      String   // CREATE_STUDENT, UPDATE_SEAT, HTTP POST, ...
+  entity      String   // students, seats, payments, or the request path
   entityId    String?
-  diff        Json?    // before/after snapshot
+  diff        Json?    // before/after snapshot, or request/SQL metadata
+  method      String?  // HTTP verb (interceptor-captured)
+  path        String?  // request path (interceptor-captured)
+  statusCode  Int?     // response status (interceptor-captured)
+  durationMs  Int?     // request duration in ms
+  actorType   String?  // PLATFORM_ADMIN | USER
   ip          String?
   userAgent   String?
   createdAt   DateTime @default(now())
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@index([tenantId, entity, entityId])
+  @@index([createdAt])
   @@map("audit_logs")
 }

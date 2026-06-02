@@ -50,4 +50,9 @@ export class StudentsApiService {
   create(dto: CreateStudentDto) { return this.http.post<Student>(this.base, dto); }
   update(id: string, dto: UpdateStudentDto) { return this.http.patch<Student>(`${this.base}/${id}`, dto); }
   remove(id: string) { return this.http.delete(`${this.base}/${id}`); }
+  resetPassword(id: string, newPassword?: string) {
+    return this.http.post<{ studentId: string; tempPassword: string }>(
+      `${this.base}/${id}/reset-password`, newPassword ? { newPassword } : {},
+    );
+  }
 }

@@ -53,8 +53,8 @@ export interface ComboItem {
                   class="w-full text-left px-3 py-2 flex items-center justify-between gap-2 hover:bg-base-200 transition-colors"
                   [class.opacity-40]="it.disabled"
                   [class.cursor-not-allowed]="it.disabled"
-                  [class.bg-primary]="!it.disabled && it.id === value"
-                  [class.bg-opacity-10]="!it.disabled && it.id === value"
+                  [class.bg-primary]="!it.disabled && it.id === value()"
+                  [class.bg-opacity-10]="!it.disabled && it.id === value()"
                   [title]="it.disabled ? (it.disabledReason || 'Not available') : ''"
                   [disabled]="it.disabled"
                   (click)="select(it)">
@@ -64,14 +64,14 @@ export interface ComboItem {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <span *ngIf="it.badge" class="badge badge-sm" [class.badge-ghost]="it.disabled" [class.badge-primary]="!it.disabled">{{ it.badge }}</span>
-              <span *ngIf="!it.disabled && it.id === value" class="text-primary">✓</span>
+              <span *ngIf="!it.disabled && it.id === value()" class="text-primary">✓</span>
             </div>
           </button>
           <div *ngIf="filtered().length === 0" class="text-center opacity-60 py-4 text-sm">
             No matches{{ query() ? ' for "' + query() + '"' : '' }}.
           </div>
         </div>
-        <div *ngIf="value && allowClear" class="border-t border-base-300 p-1">
+        <div *ngIf="value() && allowClear" class="border-t border-base-300 p-1">
           <button type="button" class="w-full text-left px-3 py-1.5 text-sm text-error hover:bg-base-200 rounded" (click)="clear()">
             Clear selection
           </button>
@@ -100,7 +100,7 @@ export class SearchableSelectComponent implements ControlValueAccessor {
 
   open = signal(false);
   query = signal('');
-  value: string | null = null;
+  value = signal<string | null>(null);
   disabled = false;
   private onChange: (v: string | null) => void = () => undefined;
   private onTouched: () => void = () => undefined;
@@ -115,7 +115,7 @@ export class SearchableSelectComponent implements ControlValueAccessor {
     );
   });
 
-  selected = computed(() => this.itemsSig().find((i) => i.id === this.value) ?? null);
+  selected = computed(() => this.itemsSig().find((i) => i.id === this.value()) ?? null);
 
   toggle() {
     if (this.disabled) return;
@@ -135,12 +135,12 @@ export class SearchableSelectComponent implements ControlValueAccessor {
 
   select(it: ComboItem) {
     if (it.disabled) return;
-    this.value = it.id;
-    this.onChange(this.value);
+    this.value.set(it.id);
+    this.onChange(it.id);
     this.close();
   }
   clear() {
-    this.value = null;
+    this.value.set(null);
     this.onChange(null);
     this.close();
   }
@@ -153,7 +153,7 @@ export class SearchableSelectComponent implements ControlValueAccessor {
   }
 
   // ---- ControlValueAccessor ----
-  writeValue(v: string | null): void { this.value = v ?? null; }
+  writeValue(v: string | null): void { this.value.set(v ?? null); }
   registerOnChange(fn: (v: string | null) => void): void { this.onChange = fn; }
   registerOnTouched(fn: () => void): void { this.onTouched = fn; }
   setDisabledState(d: boolean): void { this.disabled = d; }

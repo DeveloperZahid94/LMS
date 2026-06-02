@@ -1,6 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import {
   AgingBucket, AgingResponse, Bucket, MethodBreakdownRow, ReportsApiService,
@@ -22,7 +23,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 @Component({
   selector: 'lms-reports',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <!-- ================================ HEADER ================================ -->
     <div class="flex items-end justify-between mb-3 flex-wrap gap-2">
@@ -33,6 +34,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
         </p>
       </div>
       <div class="flex items-center gap-2 text-sm">
+        <a routerLink="/reports/attendance" class="btn btn-sm btn-outline">📋 Attendance report</a>
         <span class="opacity-60 text-xs" *ngIf="lastRefreshed()">
           Updated {{ lastRefreshed() | date:'mediumTime' }}
         </span>

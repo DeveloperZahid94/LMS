@@ -8,6 +8,7 @@ export enum StudentStatus {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
   SUSPENDED = 'SUSPENDED',
+  PENDING = 'PENDING',
 }
 
 /** Common Indian exam targets — purely informational; free-form on the API. */
@@ -42,6 +43,9 @@ export interface Student {
 
   photoUrl: string | null;
   idProofUrl: string | null;
+  aadhaarFrontUrl: string | null;
+  aadhaarBackUrl: string | null;
+  voterIdUrl: string | null;
   status: StudentStatus;
 
   joinedAt: string;
@@ -74,6 +78,9 @@ export interface CreateStudentDto {
 
   photoUrl?: string;
   idProofUrl?: string;
+  aadhaarFrontUrl?: string;
+  aadhaarBackUrl?: string;
+  voterIdUrl?: string;
 
   expiresAt?: string;
 }

@@ -1,7 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { debounceTime, Subject } from 'rxjs';
 import { StudentsApiService, ListStudentsQuery, StudentRow } from './students.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -37,9 +37,9 @@ const AVATAR_PALETTE = [
     </div>
 
     <!-- =============================== FILTER BAR =============================== -->
-    <div class="card bg-base-100 border border-base-300 mb-4 shadow-sm">
-      <div class="card-body p-3 flex flex-row flex-wrap items-center gap-2">
-        <label class="input input-bordered input-md flex items-center gap-2 flex-1 min-w-[280px]">
+    <div class="card bg-base-100 border border-base-300 mb-3 shadow-sm">
+      <div class="card-body p-2 flex flex-row flex-wrap items-center gap-2">
+        <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[280px]">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
           </svg>
@@ -49,7 +49,7 @@ const AVATAR_PALETTE = [
         </label>
 
         <div class="tooltip" data-tip="Filters">
-          <button class="btn btn-md btn-square btn-ghost"
+          <button class="btn btn-sm btn-square btn-ghost"
                   [class.btn-active]="hasActiveFilters()"
                   (click)="toggleFilters.set(!toggleFilters())">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -58,21 +58,22 @@ const AVATAR_PALETTE = [
           </button>
         </div>
 
-        <select class="select select-bordered select-md" [(ngModel)]="status" (ngModelChange)="reload()">
+        <select class="select select-bordered select-sm" [(ngModel)]="status" (ngModelChange)="reload()">
           <option [ngValue]="undefined">All Statuses</option>
           <option value="ACTIVE">Active</option>
+          <option value="PENDING">Pending (Draft)</option>
           <option value="SUSPENDED">Suspended</option>
           <option value="INACTIVE">Inactive</option>
         </select>
 
-        <select class="select select-bordered select-md" [(ngModel)]="accomFilter" (ngModelChange)="page.set(1)">
+        <select class="select select-bordered select-sm" [(ngModel)]="accomFilter" (ngModelChange)="page.set(1)">
           <option [ngValue]="'ALL'">All Types</option>
           <option [ngValue]="'WITH_SEAT'">With seat</option>
           <option [ngValue]="'NO_SEAT'">No seat</option>
         </select>
 
         <div class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-md btn-outline">
+          <div tabindex="0" role="button" class="btn btn-sm btn-outline">
             Sort by {{ sortLabel() }}
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -86,12 +87,12 @@ const AVATAR_PALETTE = [
         </div>
 
         <div class="join">
-          <button class="join-item btn btn-md btn-square" [class.btn-active]="view() === 'grid'" (click)="view.set('grid')" title="Grid view">
+          <button class="join-item btn btn-sm btn-square" [class.btn-active]="view() === 'grid'" (click)="view.set('grid')" title="Grid view">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h6v6H4zM14 6h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
             </svg>
           </button>
-          <button class="join-item btn btn-md btn-square" [class.btn-active]="view() === 'list'" (click)="view.set('list')" title="List view">
+          <button class="join-item btn btn-sm btn-square" [class.btn-active]="view() === 'list'" (click)="view.set('list')" title="List view">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
@@ -173,6 +174,7 @@ const AVATAR_PALETTE = [
               <td>
                 <span class="badge"
                   [class.badge-success]="s.status==='ACTIVE'"
+                  [class.badge-info]="s.status==='PENDING'"
                   [class.badge-warning]="s.status==='SUSPENDED'"
                   [class.badge-ghost]="s.status==='INACTIVE'">
                   {{ s.status | titlecase }}
@@ -232,6 +234,7 @@ const AVATAR_PALETTE = [
               </div>
               <span class="badge badge-sm"
                 [class.badge-success]="s.status==='ACTIVE'"
+                [class.badge-info]="s.status==='PENDING'"
                 [class.badge-warning]="s.status==='SUSPENDED'"
                 [class.badge-ghost]="s.status==='INACTIVE'">
                 {{ s.status }}
@@ -298,79 +301,6 @@ const AVATAR_PALETTE = [
       </div>
     </div>
 
-    <!-- =============================== VIEW MODAL =============================== -->
-    <dialog #viewModal class="modal" [class.modal-open]="!!viewing()">
-      <div class="modal-box max-w-3xl" *ngIf="viewing() as v">
-        <form method="dialog">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="viewing.set(null)">✕</button>
-        </form>
-        <div class="flex items-center gap-3 mb-3">
-          <div class="avatar placeholder">
-            <div class="w-12 h-12 rounded-full" [class]="avatarClass(v)">
-              <span class="text-base font-semibold">{{ initials(v.fullName) }}</span>
-            </div>
-          </div>
-          <div>
-            <h3 class="font-bold text-lg flex items-center gap-2">
-              {{ v.fullName }}
-              <span class="badge badge-sm"
-                [class.badge-success]="v.status==='ACTIVE'"
-                [class.badge-warning]="v.status==='SUSPENDED'"
-                [class.badge-ghost]="v.status==='INACTIVE'">{{ v.status }}</span>
-            </h3>
-            <p class="text-sm opacity-60"><code class="bg-base-200 px-1.5 py-0.5 rounded">{{ v.code }}</code></p>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-          <div><span class="opacity-60">Phone:</span> {{ v.phone }}</div>
-          <div><span class="opacity-60">Email:</span> {{ v.email || '—' }}</div>
-          <div><span class="opacity-60">Gender:</span> {{ v.gender || '—' }}</div>
-          <div><span class="opacity-60">Date of birth:</span> {{ (v.dateOfBirth | date:'mediumDate') || '—' }}</div>
-          <div><span class="opacity-60">Aadhaar:</span> {{ v.aadhaarNumber || '—' }}</div>
-          <div><span class="opacity-60">Voter ID:</span> {{ v.voterId || '—' }}</div>
-          <div><span class="opacity-60">Father:</span> {{ v.fatherName || '—' }}</div>
-          <div><span class="opacity-60">Mother:</span> {{ v.motherName || '—' }}</div>
-          <div><span class="opacity-60">Emergency:</span> {{ v.emergencyContact || '—' }}</div>
-          <div><span class="opacity-60">Exam target:</span> {{ v.examTarget || '—' }}</div>
-          <div><span class="opacity-60">Registered:</span> {{ v.joinedAt | date:'medium' }}</div>
-          <div><span class="opacity-60">Expires:</span> {{ (v.expiresAt | date:'medium') || '—' }}</div>
-        </div>
-
-        <div *ngIf="v.activeSeat" class="divider my-3 text-xs">Active seat</div>
-        <div *ngIf="v.activeSeat" class="bg-base-200 rounded-lg p-3 text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
-          <div><span class="opacity-60">Seat:</span> <code class="bg-base-100 px-1.5 py-0.5 rounded text-xs">{{ v.activeSeat.seatCode }}</code></div>
-          <div><span class="opacity-60">Type:</span> {{ v.activeSeat.seatType }}</div>
-          <div><span class="opacity-60">Shift:</span> {{ v.activeSeat.shift }}</div>
-          <div><span class="opacity-60">Rate:</span> {{ v.activeSeat.monthlyRate ? '₹' + (v.activeSeat.monthlyRate | number) : '—' }}</div>
-          <div class="col-span-2"><span class="opacity-60">Next due:</span> {{ v.activeSeat.nextDueDate ? (v.activeSeat.nextDueDate | date:'mediumDate') : '—' }}</div>
-          <div class="col-span-2"><span class="opacity-60">Status:</span>
-            <span class="badge badge-sm" [class.badge-success]="v.activeSeat.status === 'CONFIRMED'" [class.badge-warning]="v.activeSeat.status === 'TEMPORARY'">{{ v.activeSeat.status }}</span>
-          </div>
-        </div>
-
-        <div class="divider my-2 text-xs">Address</div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div>
-            <div class="opacity-60 text-xs uppercase tracking-wide mb-1">Permanent</div>
-            <div class="whitespace-pre-wrap">{{ v.permanentAddress || '—' }}</div>
-          </div>
-          <div>
-            <div class="opacity-60 text-xs uppercase tracking-wide mb-1">Temporary</div>
-            <div class="whitespace-pre-wrap">{{ v.temporaryAddress || '—' }}</div>
-          </div>
-        </div>
-
-        <div class="modal-action">
-          <a class="btn btn-ghost" [routerLink]="['/students', v.id]" (click)="viewing.set(null)">Edit</a>
-          <button class="btn" (click)="viewing.set(null)">Close</button>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button (click)="viewing.set(null)">close</button>
-      </form>
-    </dialog>
-
     <!-- =============================== DELETE DIALOG =============================== -->
     <dialog class="modal" [class.modal-open]="!!deleting()">
       <div class="modal-box" *ngIf="deleting() as d">
@@ -390,13 +320,14 @@ const AVATAR_PALETTE = [
 export class StudentsListComponent implements OnInit {
   private api = inject(StudentsApiService);
   private toast = inject(ToastService);
+  private router = inject(Router);
 
   data = signal<StudentRow[]>([]);
   total = signal(0);
   page = signal(1);
   limit = 25;
   search = '';
-  status: 'ACTIVE' | 'SUSPENDED' | 'INACTIVE' | undefined = undefined;
+  status: 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'INACTIVE' | undefined = undefined;
   accomFilter: 'ALL' | 'WITH_SEAT' | 'NO_SEAT' = 'ALL';
   sortBy = signal<SortField>('createdAt');
   sortOrder = signal<'asc' | 'desc'>('desc');
@@ -407,7 +338,6 @@ export class StudentsListComponent implements OnInit {
   toggleFilters = signal(false);
   view = signal<ViewMode>('list');
 
-  viewing = signal<StudentRow | null>(null);
   deleting = signal<StudentRow | null>(null);
   deletingId = signal<string | null>(null);
 
@@ -495,7 +425,10 @@ export class StudentsListComponent implements OnInit {
     return Math.min(this.page() * this.limit, this.total());
   }
 
-  view_(s: StudentRow) { this.viewing.set(s); (document.activeElement as HTMLElement | null)?.blur(); }
+  view_(s: StudentRow) {
+    (document.activeElement as HTMLElement | null)?.blur();
+    this.router.navigate(['/students', s.id, 'profile']);
+  }
 
   confirmDelete(s: StudentRow) { this.deleting.set(s); (document.activeElement as HTMLElement | null)?.blur(); }
   doDelete() {

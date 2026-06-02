@@ -1,7 +1,7 @@
 import {
   IsEmail, IsEnum, IsISO8601, IsOptional, IsString, IsUUID, Length, Matches, MaxLength,
 } from 'class-validator';
-import { Gender } from '@lms/shared';
+import { Gender, StudentStatus } from '@lms/shared';
 
 export class CreateStudentDto {
   @IsUUID()
@@ -78,6 +78,23 @@ export class CreateStudentDto {
   idProofUrl?: string;
 
   @IsOptional()
+  @IsString()
+  aadhaarFrontUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  aadhaarBackUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  voterIdUrl?: string;
+
+  @IsOptional()
   @IsISO8601()
   expiresAt?: string;
+
+  // Draft registrations are created with PENDING; defaults to ACTIVE when omitted.
+  @IsOptional()
+  @IsEnum(StudentStatus)
+  status?: StudentStatus;
 }

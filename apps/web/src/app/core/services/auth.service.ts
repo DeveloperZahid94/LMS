@@ -25,6 +25,25 @@ export class AuthService {
     );
   }
 
+  /** Password-only platform-owner login (dedicated /superadmin route). */
+  superAdminLogin(password: string): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/superadmin-login`, { password }).pipe(
+      tap((res) => this.setSession(res)),
+    );
+  }
+
+  /** Student self-service login for the check-in kiosk (tenant + code + password). */
+  studentLogin(req: { tenantSlug: string; code: string; password: string }): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/student-login`, req).pipe(
+      tap((res) => this.setSession(res)),
+    );
+  }
+
+  /** Student changing their own kiosk password. */
+  studentChangePassword(currentPassword: string, newPassword: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${environment.apiUrl}/auth/student-change-password`, { currentPassword, newPassword });
+  }
+
   logout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
@@ -41,6 +60,15 @@ export class AuthService {
 
   hasFeature(key: FeatureKey): boolean {
     return this.features().some((f) => f.key === key && f.enabled);
+  }
+
+  /** Merge a partial update into the cached user (e.g. clearing mustChangePassword). */
+  updateUser(patch: Partial<AuthUser>) {
+    const current = this.user();
+    if (!current) return;
+    const next = { ...current, ...patch };
+    localStorage.setItem(USER_KEY, JSON.stringify(next));
+    this.user.set(next);
   }
 
   private setSession(res: AuthResponse) {

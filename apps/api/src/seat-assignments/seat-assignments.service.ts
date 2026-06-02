@@ -68,7 +68,7 @@ export class SeatAssignmentsService {
     if (studentIds.length) {
       const aggs = await this.prisma.payment.groupBy({
         by: ['studentId'],
-        where: { tenantId, studentId: { in: studentIds }, status: 'PAID' },
+        where: { tenantId, studentId: { in: studentIds }, status: 'PAID', deletedAt: null },
         _sum: { amount: true },
       });
       for (const a of aggs) {
@@ -187,32 +187,38 @@ export class SeatAssignmentsService {
     return ended;
   }
 
-  /**
-   * Called from PaymentsService after a payment lands in PAID state.
-   * Promotes any TEMPORARY allocations for this student whose 50% threshold
-   * is now met. Idempotent — already-CONFIRMED rows are untouched.
-   */
+  /** Back-compat alias — payment recording calls this. */
   async maybePromoteAfterPayment(tenantId: string, studentId: string) {
-    const temp = await this.prisma.seatAssignment.findMany({
-      where: { tenantId, studentId, status: SeatAssignmentStatus.TEMPORARY },
+    return this.reconcileAfterPaymentChange(tenantId, studentId);
+  }
+
+  /**
+   * Re-evaluates a student's active allocations against the 50%-paid threshold
+   * after ANY payment change (record OR delete). Promotes TEMPORARY→CONFIRMED
+   * when paid ≥ 50%, and reverts CONFIRMED→TEMPORARY when a deletion drops it
+   * below. Soft-deleted payments are excluded from the paid total.
+   */
+  async reconcileAfterPaymentChange(tenantId: string, studentId: string) {
+    const assigns = await this.prisma.seatAssignment.findMany({
+      where: { tenantId, studentId, status: { in: BLOCKING_STATUSES } },
     });
-    if (!temp.length) return;
+    if (!assigns.length) return;
     const paidAgg = await this.prisma.payment.aggregate({
-      where: { tenantId, studentId, status: 'PAID' },
+      where: { tenantId, studentId, status: 'PAID', deletedAt: null },
       _sum: { amount: true },
     });
     const paid = Number(paidAgg._sum.amount ?? 0);
-    for (const a of temp) {
+    for (const a of assigns) {
       const rate = a.monthlyRate ? Number(a.monthlyRate) : 0;
-      if (rate > 0 && paid >= rate * CONFIRMATION_THRESHOLD) {
-        await this.prisma.seatAssignment.update({
-          where: { id: a.id },
-          data: { status: SeatAssignmentStatus.CONFIRMED },
-        });
+      const desired = rate > 0 && paid >= rate * CONFIRMATION_THRESHOLD
+        ? SeatAssignmentStatus.CONFIRMED
+        : SeatAssignmentStatus.TEMPORARY;
+      if (desired !== a.status) {
+        await this.prisma.seatAssignment.update({ where: { id: a.id }, data: { status: desired } });
         await this.audit.record({
           tenantId,
           userId: this.tenantCtx.userId,
-          action: 'CONFIRM_SEAT_ALLOCATION',
+          action: desired === SeatAssignmentStatus.CONFIRMED ? 'CONFIRM_SEAT_ALLOCATION' : 'REVERT_SEAT_ALLOCATION',
           entity: 'seat_assignments',
           entityId: a.id,
           diff: { paid, monthlyRate: rate, threshold: CONFIRMATION_THRESHOLD },
@@ -226,7 +232,7 @@ export class SeatAssignmentsService {
   ): Promise<SeatAssignmentStatus> {
     if (!monthlyRate) return SeatAssignmentStatus.TEMPORARY;
     const paid = await this.prisma.payment.aggregate({
-      where: { tenantId, studentId, status: 'PAID' },
+      where: { tenantId, studentId, status: 'PAID', deletedAt: null },
       _sum: { amount: true },
     });
     const total = Number(paid._sum.amount ?? 0);

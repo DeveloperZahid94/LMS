@@ -1,6 +1,7 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { FeatureKey } from '@lms/shared';
 import { AuthService } from '../core/services/auth.service';
 import { ThemeService } from '../core/services/theme.service';
 import { ToastContainerComponent } from '../shared/components/toast-container.component';
@@ -10,6 +11,8 @@ interface NavItem {
   label: string;
   icon: string;
   path: string;
+  /** When set, the item only shows for tenants that have this feature enabled. */
+  feature?: FeatureKey;
 }
 
 @Component({
@@ -107,7 +110,7 @@ interface NavItem {
 
           <!-- Nav items -->
           <ul class="flex-1 px-2 pt-3 pb-1 space-y-0.5 overflow-y-auto">
-            <li *ngFor="let n of nav">
+            <li *ngFor="let n of nav()">
               <a [routerLink]="n.path"
                  routerLinkActive="lms-nav-active"
                  [routerLinkActiveOptions]="{ exact: false }"
@@ -241,18 +244,35 @@ export class ShellComponent implements OnInit {
 
   goAlerts() { this.router.navigate(['/alerts']); }
 
-  nav: NavItem[] = [
-    { label: 'Dashboard', icon: '◊', path: '/dashboard' },
-    { label: 'Students', icon: '☺', path: '/students' },
-    { label: 'Seats', icon: '☐', path: '/seats' },
-    { label: 'PG Rooms', icon: '🛏', path: '/pg-rooms' },
-    { label: 'Attendance', icon: '✓', path: '/attendance' },
-    { label: 'Payments', icon: '₹', path: '/payments' },
-    { label: 'Alerts',   icon: '⚠', path: '/alerts' },
-    { label: 'WhatsApp', icon: '💬', path: '/whatsapp' },
-    { label: 'Reports',  icon: '📊', path: '/reports' },
-    { label: 'Settings', icon: '⚙', path: '/settings' },
+  // Core tenant menu. `feature`-tagged items are hidden when the tenant's plan
+  // doesn't include that feature (SuperAdmin toggles these per tenant).
+  private readonly baseNav: NavItem[] = [
+    { label: 'Dashboard', icon: '◊', path: '/dashboard', feature: FeatureKey.DASHBOARD },
+    { label: 'Students', icon: '☺', path: '/students', feature: FeatureKey.STUDENTS },
+    { label: 'Seats', icon: '☐', path: '/seats', feature: FeatureKey.SEATS },
+    { label: 'PG Rooms', icon: '🛏', path: '/pg-rooms', feature: FeatureKey.PG_ROOMS },
+    { label: 'Attendance', icon: '✓', path: '/attendance', feature: FeatureKey.QR_ATTENDANCE },
+    { label: 'Payments', icon: '₹', path: '/payments', feature: FeatureKey.PAYMENT_GATEWAY },
+    { label: 'Alerts',   icon: '⚠', path: '/alerts', feature: FeatureKey.ALERTS },
+    { label: 'WhatsApp', icon: '💬', path: '/whatsapp', feature: FeatureKey.WHATSAPP },
+    { label: 'Reports',  icon: '📊', path: '/reports', feature: FeatureKey.REPORTS },
+    { label: 'Settings', icon: '⚙', path: '/settings', feature: FeatureKey.SETTINGS },
   ];
+
+  // Platform-owner menu — only the SuperAdmin sees these.
+  private readonly adminNav: NavItem[] = [
+    { label: 'Tenants', icon: '🏢', path: '/admin/tenants' },
+    { label: 'Audit Log', icon: '📜', path: '/admin/audit' },
+    { label: 'Database', icon: '🗄', path: '/admin/database' },
+  ];
+
+  nav = computed<NavItem[]>(() => {
+    const user = this.auth.user();
+    // SuperAdmin operates across tenants — show the platform console, not tenant screens.
+    if (user?.role === 'SUPER_ADMIN') return this.adminNav;
+    // Tenant users: hide feature-gated items their plan doesn't include.
+    return this.baseNav.filter((n) => !n.feature || this.auth.hasFeature(n.feature));
+  });
 
   initials(name: string): string {
     return name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('');

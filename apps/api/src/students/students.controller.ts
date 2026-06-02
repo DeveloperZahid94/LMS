@@ -44,4 +44,10 @@ export class StudentsController {
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
+
+  @Roles(UserRole.BRANCH_ADMIN)
+  @Post(':id/reset-password')
+  resetPassword(@Param('id') id: string, @Body() dto: { newPassword?: string }) {
+    return this.service.resetPassword(id, dto?.newPassword);
+  }
 }

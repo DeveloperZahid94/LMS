@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto, RazorpayCreateOrderDto, RazorpayVerifyDto } from './dto/payment.dto';
@@ -18,14 +18,33 @@ export class PaymentsController {
     @Query('status') status?: PaymentStatus,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: 'date' | 'amount' | 'student',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.service.list(branchId, status, { dateFrom, dateTo, limit: limit ? +limit : undefined });
+    return this.service.list({
+      branchId, status, dateFrom, dateTo, search, sortBy, sortOrder,
+      page: page ? +page : undefined,
+      limit: limit ? +limit : undefined,
+    });
+  }
+
+  @Get('students/:studentId/summary')
+  studentSummary(@Param('studentId') studentId: string) {
+    return this.service.studentSummary(studentId);
   }
 
   @Post('manual')
   recordManual(@Body() dto: CreatePaymentDto) {
     return this.service.recordManual(dto);
+  }
+
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post(':id/delete')
+  softDelete(@Param('id') id: string, @Body() dto: { reason?: string }) {
+    return this.service.softDelete(id, dto?.reason);
   }
 
   @Post('razorpay/order')

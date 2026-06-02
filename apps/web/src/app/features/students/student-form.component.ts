@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators, FormGroup } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,11 +6,12 @@ import { forkJoin, of, switchMap } from 'rxjs';
 import { StudentsApiService } from './students.service';
 import { BranchesApiService, Branch } from './branches.service';
 import { ExamTargetsApiService, ExamTarget } from './exam-targets.service';
-import { Gender, PaymentMethod, Shift, StudentStatus } from '@lms/shared';
+import { FeatureKey, Gender, PaymentMethod, Shift, StudentStatus } from '@lms/shared';
 import { SeatsApiService, SeatAssignmentsApiService, SeatWithAssignments } from '../seats/seats.service';
 import { PgRoomsApiService, PgRoom } from '../pg-rooms/pg-rooms.service';
 import { PaymentsApiService } from '../payments/payments.service';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
 
 type AccomType = 'CABIN_ONLY' | 'PG_ONLY' | 'BOTH';
 type PayMethod = 'CASH' | 'UPI' | 'BANK_TRANSFER';
@@ -27,18 +28,17 @@ interface StepDef {
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule, FormsModule],
   template: `
-    <div class="max-w-6xl mx-auto">
-      <div class="mb-4 flex items-center justify-between">
-        <div>
-          <h1 class="text-2xl font-bold">{{ id() ? 'Edit student' : 'New student' }}</h1>
-          <p class="text-sm opacity-60" *ngIf="id()">Code: <code class="bg-base-200 px-1.5 py-0.5 rounded">{{ code() }}</code></p>
-          <p class="text-sm opacity-60" *ngIf="!id()">Complete {{ steps().length }} steps to register a new student</p>
-        </div>
+    <div class="max-w-7xl mx-auto">
+      <div class="mb-3 flex items-center justify-between">
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          {{ id() ? 'Edit student' : 'New student' }}
+          <code *ngIf="id()" class="bg-base-200 px-1.5 py-0.5 rounded text-sm font-normal">{{ code() }}</code>
+        </h1>
         <button class="btn btn-ghost btn-sm" (click)="cancel()">Cancel</button>
       </div>
 
-      <!-- Stepper (hidden in edit mode) -->
-      <div *ngIf="!id()" class="card bg-base-100 border border-base-300 shadow-sm mb-4 overflow-hidden">
+      <!-- Stepper (shown for new registration and while completing a draft) -->
+      <div *ngIf="showFullFlow()" class="card bg-base-100 border border-base-300 shadow-sm mb-3 overflow-hidden">
         <div class="lms-stepper">
           <div class="lms-stepper-track"></div>
           <div class="lms-stepper-progress" [style.width.%]="progressPct()"></div>
@@ -61,134 +61,110 @@ interface StepDef {
 
       <form [formGroup]="form" (ngSubmit)="submit()" class="card bg-base-100 border border-base-300 shadow-sm">
         <div class="card-body">
-          <div class="mb-4">
-            <div class="text-xs uppercase tracking-wider opacity-50" *ngIf="!id()">Step {{ currentStep() + 1 }} of {{ steps().length }}</div>
-            <h2 class="text-xl font-semibold mt-1">{{ steps()[currentStep()].label }}</h2>
-            <p class="text-sm opacity-60">{{ steps()[currentStep()].hint }}</p>
+          <div class="mb-4 grid grid-cols-3 items-center gap-2 border-b border-base-200 pb-2">
+            <div class="text-xs uppercase tracking-wider opacity-50">
+              <span *ngIf="showFullFlow()">Step {{ currentStep() + 1 }} of {{ steps().length }}</span>
+            </div>
+            <h2 class="text-xl font-semibold text-center">{{ steps()[currentStep()].label }}</h2>
+            <p class="text-sm opacity-60 text-right truncate">{{ steps()[currentStep()].hint }}</p>
           </div>
 
           <!-- ============================== STEP 1: PERSONAL INFO ============================== -->
           <ng-container *ngIf="currentStep() === 0">
-            <div formGroupName="personal" class="space-y-5">
-
-              <!-- Basics -->
-              <div>
-                <div class="text-xs uppercase tracking-wider opacity-60 font-semibold mb-2">Basics</div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Full name *</span></div>
-                    <input class="input input-bordered" formControlName="fullName" placeholder="Aarav Kumar" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Phone *</span></div>
-                    <input class="input input-bordered" formControlName="phone" placeholder="+919xxxxxxxxx" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Email</span></div>
-                    <input class="input input-bordered" type="email" formControlName="email" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Date of birth</span></div>
-                    <input class="input input-bordered" type="date" formControlName="dateOfBirth" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Gender</span></div>
-                    <select class="select select-bordered" formControlName="gender">
-                      <option [ngValue]="null">—</option>
-                      <option *ngFor="let g of genders" [value]="g">{{ g }}</option>
-                    </select>
-                  </label>
-                  <label class="form-control" *ngIf="id()">
-                    <div class="label py-1"><span class="label-text">Status</span></div>
-                    <select class="select select-bordered" formControlName="status">
-                      <option *ngFor="let s of statuses" [value]="s">{{ s }}</option>
-                    </select>
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Branch *</span></div>
-                    <select class="select select-bordered" formControlName="branchId">
-                      <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
-                    </select>
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1 justify-between">
-                      <span class="label-text">Studying for which exam</span>
-                      <button type="button" class="btn btn-ghost btn-xs" (click)="openAddExam()">+ Add new</button>
-                    </div>
-                    <select class="select select-bordered" formControlName="examTarget">
-                      <option [ngValue]="null">—</option>
-                      <option *ngFor="let e of examTargets()" [value]="e.name">
-                        {{ e.name }}{{ e.isCustom ? ' (custom)' : '' }}
-                      </option>
-                    </select>
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Membership expires on</span></div>
-                    <input class="input input-bordered" type="date" formControlName="expiresAt" />
-                  </label>
+            <div formGroupName="personal" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-2">
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Full name *</span></div>
+                <input class="input input-bordered input-sm" formControlName="fullName" placeholder="ex. Zahid Anjum" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Phone *</span></div>
+                <input class="input input-bordered input-sm" formControlName="phone" placeholder="ex. 9876543210" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Email</span></div>
+                <input class="input input-bordered input-sm" type="email" formControlName="email" placeholder="ex. zahid@email.com" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Date of birth</span></div>
+                <input class="input input-bordered input-sm" type="date" formControlName="dateOfBirth" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Gender</span></div>
+                <select class="select select-bordered select-sm" formControlName="gender">
+                  <option [ngValue]="null">—</option>
+                  <option *ngFor="let g of genders" [value]="g">{{ g }}</option>
+                </select>
+              </label>
+              <label class="form-control" *ngIf="id()">
+                <div class="label py-1"><span class="label-text">Status</span></div>
+                <select class="select select-bordered select-sm" formControlName="status">
+                  <option *ngFor="let s of statuses" [value]="s">{{ s }}</option>
+                </select>
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Branch *</span></div>
+                <select class="select select-bordered select-sm" formControlName="branchId">
+                  <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+                </select>
+              </label>
+              <label class="form-control">
+                <div class="label py-1 justify-between">
+                  <span class="label-text">Studying for which exam</span>
+                  <button type="button" class="btn btn-ghost btn-xs" (click)="openAddExam()">+ Add new</button>
                 </div>
-              </div>
+                <select class="select select-bordered select-sm" formControlName="examTarget">
+                  <option [ngValue]="null">—</option>
+                  <option *ngFor="let e of examTargets()" [value]="e.name">
+                    {{ e.name }}{{ e.isCustom ? ' (custom)' : '' }}
+                  </option>
+                </select>
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Membership expires on</span></div>
+                <input class="input input-bordered input-sm" type="date" formControlName="expiresAt" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Aadhaar number</span></div>
+                <input class="input input-bordered input-sm" formControlName="aadhaarNumber" placeholder="ex. 1234 5678 9012" maxlength="12" inputmode="numeric" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Voter ID (EPIC)</span></div>
+                <input class="input input-bordered input-sm" formControlName="voterId" placeholder="ex. ABC1234567" maxlength="20" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Father's name</span></div>
+                <input class="input input-bordered input-sm" formControlName="fatherName" placeholder="ex. Imran Anjum" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Mother's name</span></div>
+                <input class="input input-bordered input-sm" formControlName="motherName" placeholder="ex. Sara Anjum" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Emergency contact</span></div>
+                <input class="input input-bordered input-sm" formControlName="emergencyContact" placeholder="ex. 9876543210" />
+              </label>
 
-              <!-- KYC -->
-              <div>
-                <div class="text-xs uppercase tracking-wider opacity-60 font-semibold mb-2">KYC</div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Aadhaar number</span></div>
-                    <input class="input input-bordered" formControlName="aadhaarNumber" placeholder="12 digits" maxlength="12" inputmode="numeric" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Voter ID (EPIC)</span></div>
-                    <input class="input input-bordered" formControlName="voterId" placeholder="ABC1234567" maxlength="20" />
-                  </label>
-                </div>
+              <!-- Address (full width) -->
+              <label class="form-control sm:col-span-2 lg:col-span-3">
+                <div class="label py-1"><span class="label-text">Permanent address</span></div>
+                <textarea class="textarea textarea-bordered textarea-sm" formControlName="permanentAddress" rows="2" placeholder="ex. House 12, MG Road, Pune, MH 411001"></textarea>
+              </label>
+              <div class="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
+                <input id="sameAddr" type="checkbox" class="checkbox checkbox-primary checkbox-sm" [checked]="sameAddress()" (change)="toggleSameAddress($event)" />
+                <label for="sameAddr" class="text-sm">Temporary address is the same as permanent</label>
               </div>
-
-              <!-- Family / emergency -->
-              <div>
-                <div class="text-xs uppercase tracking-wider opacity-60 font-semibold mb-2">Family &amp; emergency</div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Father's name</span></div>
-                    <input class="input input-bordered" formControlName="fatherName" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Mother's name</span></div>
-                    <input class="input input-bordered" formControlName="motherName" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Emergency contact</span></div>
-                    <input class="input input-bordered" formControlName="emergencyContact" placeholder="+91xxxxxxxxxx" />
-                  </label>
-                </div>
-              </div>
-
-              <!-- Address -->
-              <div>
-                <div class="text-xs uppercase tracking-wider opacity-60 font-semibold mb-2">Address</div>
-                <div class="space-y-3">
-                  <label class="form-control">
-                    <div class="label py-1"><span class="label-text">Permanent address</span></div>
-                    <textarea class="textarea textarea-bordered" formControlName="permanentAddress" rows="2" placeholder="House, street, city, state, PIN"></textarea>
-                  </label>
-                  <div class="flex items-center gap-2">
-                    <input id="sameAddr" type="checkbox" class="checkbox checkbox-primary checkbox-sm" [checked]="sameAddress()" (change)="toggleSameAddress($event)" />
-                    <label for="sameAddr" class="text-sm">Temporary address is the same as permanent</label>
-                  </div>
-                  <label class="form-control" *ngIf="!sameAddress()">
-                    <div class="label py-1"><span class="label-text">Temporary address</span></div>
-                    <textarea class="textarea textarea-bordered" formControlName="temporaryAddress" rows="2" placeholder="Current residence"></textarea>
-                  </label>
-                </div>
-              </div>
+              <label class="form-control sm:col-span-2 lg:col-span-3" *ngIf="!sameAddress()">
+                <div class="label py-1"><span class="label-text">Temporary address</span></div>
+                <textarea class="textarea textarea-bordered textarea-sm" formControlName="temporaryAddress" rows="2" placeholder="ex. Flat 4B, Sector 22, Noida, UP 201301"></textarea>
+              </label>
             </div>
           </ng-container>
 
           <!-- ============================== STEP 2: ACCOMMODATION ============================== -->
-          <ng-container *ngIf="currentStep() === 1 && !id()">
+          <ng-container *ngIf="currentStep() === 1 && showFullFlow()">
             <div class="space-y-5">
               <!-- Type chooser — bigger, richer cards -->
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="grid grid-cols-1 gap-3" [class.md:grid-cols-3]="pgEnabled()">
                 <!-- CABIN -->
                 <button type="button"
                         class="relative overflow-hidden rounded-2xl p-5 text-left border-2 transition-all hover:shadow-lg hover:-translate-y-0.5"
@@ -221,7 +197,7 @@ interface StepDef {
                 </button>
 
                 <!-- PG -->
-                <button type="button"
+                <button type="button" *ngIf="pgEnabled()"
                         class="relative overflow-hidden rounded-2xl p-5 text-left border-2 transition-all hover:shadow-lg hover:-translate-y-0.5"
                         [class.border-success]="accomType() === 'PG_ONLY'"
                         [class.shadow-md]="accomType() === 'PG_ONLY'"
@@ -253,7 +229,7 @@ interface StepDef {
                 </button>
 
                 <!-- BOTH -->
-                <button type="button"
+                <button type="button" *ngIf="pgEnabled()"
                         class="relative overflow-hidden rounded-2xl p-5 text-left border-2 transition-all hover:shadow-lg hover:-translate-y-0.5"
                         [class.border-warning]="accomType() === 'BOTH'"
                         [class.shadow-md]="accomType() === 'BOTH'"
@@ -313,7 +289,7 @@ interface StepDef {
 
                     <label class="form-control" *ngIf="availableSeats().length > 0">
                       <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Select cabin *</span></div>
-                      <select class="select select-bordered" formControlName="seatId" (change)="onCabinChange()">
+                      <select class="select select-bordered select-sm" formControlName="seatId" (change)="onCabinChange()">
                         <option value="">— Choose available cabin —</option>
                         <option *ngFor="let s of availableSeats()" [value]="s.id">
                           {{ s.code }}{{ s.floor ? ' · Floor ' + s.floor : '' }}{{ s.zone ? ' · ' + s.zone : '' }} — ₹{{ bestSeatRate(s) | number }}
@@ -353,11 +329,11 @@ interface StepDef {
                     <div class="grid grid-cols-2 gap-3">
                       <label class="form-control">
                         <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Join date *</span></div>
-                        <input class="input input-bordered" type="date" formControlName="joinDate" />
+                        <input class="input input-bordered input-sm" type="date" formControlName="joinDate" />
                       </label>
                       <label class="form-control">
                         <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Due date *</span></div>
-                        <input class="input input-bordered" type="date" formControlName="dueDate" />
+                        <input class="input input-bordered input-sm" type="date" formControlName="dueDate" />
                       </label>
                     </div>
 
@@ -397,7 +373,7 @@ interface StepDef {
 
                     <label class="form-control" *ngIf="availablePgRooms().length > 0">
                       <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Select PG room *</span></div>
-                      <select class="select select-bordered" formControlName="roomId" (change)="onPgRoomChange()">
+                      <select class="select select-bordered select-sm" formControlName="roomId" (change)="onPgRoomChange()">
                         <option value="">— Choose available room —</option>
                         <option *ngFor="let r of availablePgRooms()" [value]="r.id">
                           {{ r.roomNumber }}{{ r.floor ? ' · Floor ' + r.floor : '' }} · {{ pgRoomTypeLabel(r.type) }} · ₹{{ r.monthlyRate | number }} ({{ r.availableBeds }}/{{ r.bedCount }} free)
@@ -446,11 +422,11 @@ interface StepDef {
                     <div class="grid grid-cols-2 gap-3">
                       <label class="form-control">
                         <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Join date *</span></div>
-                        <input class="input input-bordered" type="date" formControlName="joinDate" />
+                        <input class="input input-bordered input-sm" type="date" formControlName="joinDate" />
                       </label>
                       <label class="form-control">
                         <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Due date *</span></div>
-                        <input class="input input-bordered" type="date" formControlName="dueDate" />
+                        <input class="input input-bordered input-sm" type="date" formControlName="dueDate" />
                       </label>
                     </div>
 
@@ -489,7 +465,7 @@ interface StepDef {
           </ng-container>
 
           <!-- ============================== STEP 3: PAYMENT ============================== -->
-          <ng-container *ngIf="currentStep() === 2 && !id()">
+          <ng-container *ngIf="currentStep() === 2 && showFullFlow()">
             <!-- Inline header: title on left, payment-method tabs on extreme right -->
             <div class="flex items-center justify-between flex-wrap gap-3 mb-4 pb-3 border-b border-base-200">
               <div>
@@ -520,30 +496,30 @@ interface StepDef {
               <div formGroupName="payment" class="md:col-span-2 space-y-3">
                 <label *ngIf="hasCabin()" class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Cabin initial payment (₹) *</span></div>
-                  <input class="input input-bordered" type="number" min="0" formControlName="cabinInitial" />
+                  <input class="input input-bordered input-sm" type="number" min="0" formControlName="cabinInitial" />
                 </label>
 
                 <label *ngIf="hasPg()" class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">PG room initial payment (₹) *</span></div>
-                  <input class="input input-bordered" type="number" min="0" formControlName="pgInitial" />
+                  <input class="input input-bordered input-sm" type="number" min="0" formControlName="pgInitial" />
                 </label>
 
                 <label *ngIf="payMethod() === 'UPI'" class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">UPI transaction ID *</span></div>
-                  <input class="input input-bordered" formControlName="transactionRef" placeholder="e.g. 123456789012" />
+                  <input class="input input-bordered input-sm" formControlName="transactionRef" placeholder="e.g. 123456789012" />
                 </label>
                 <label *ngIf="payMethod() === 'BANK_TRANSFER'" class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Bank reference / UTR *</span></div>
-                  <input class="input input-bordered" formControlName="transactionRef" placeholder="UTR number or bank ref" />
+                  <input class="input input-bordered input-sm" formControlName="transactionRef" placeholder="UTR number or bank ref" />
                 </label>
 
                 <label class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Payment date *</span></div>
-                  <input class="input input-bordered" type="date" formControlName="paymentDate" />
+                  <input class="input input-bordered input-sm" type="date" formControlName="paymentDate" />
                 </label>
                 <label class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Notes (optional)</span></div>
-                  <textarea class="textarea textarea-bordered" rows="2" formControlName="notes" placeholder="Any additional payment notes…"></textarea>
+                  <textarea class="textarea textarea-bordered textarea-sm" rows="2" formControlName="notes" placeholder="Any additional payment notes…"></textarea>
                 </label>
               </div>
 
@@ -581,47 +557,54 @@ interface StepDef {
           </ng-container>
 
           <!-- ============================== STEP 4: DOCUMENTS & PHOTO ============================== -->
-          <ng-container *ngIf="currentStep() === 3 && !id()">
+          <ng-container *ngIf="currentStep() === 3 && showFullFlow()">
             <div formGroupName="documents" class="space-y-4">
-              <p class="alert alert-info py-2 text-sm">
-                <span>Document &amp; photo upload integration is coming soon. For now, paste a URL for each item or skip this step entirely.</span>
-              </p>
-
               <!-- Photo capture -->
               <div class="card bg-base-100 border border-base-300 shadow-sm">
                 <div class="card-body p-4">
-                  <div class="font-semibold mb-2">Live Photo Capture</div>
-                  <div class="join mb-3">
-                    <button type="button" class="join-item btn btn-primary"
-                            (click)="comingSoon('File upload')">⬆ Upload Photo</button>
-                    <button type="button" class="join-item btn"
-                            (click)="comingSoon('Webcam capture')">📷 Use Webcam</button>
+                  <div class="font-semibold mb-3">Student Photo</div>
+                  <div class="flex items-start gap-4 flex-wrap">
+                    <div class="w-32 h-32 rounded-xl border-2 border-dashed border-base-300 grid place-items-center overflow-hidden bg-base-200 shrink-0">
+                      <img *ngIf="docValue('photoUrl')" [src]="docValue('photoUrl')" class="w-full h-full object-cover" alt="Student photo" />
+                      <span *ngIf="!docValue('photoUrl')" class="text-4xl opacity-30">📷</span>
+                    </div>
+                    <div class="flex-1 min-w-[220px] space-y-2">
+                      <div class="join">
+                        <button type="button" class="join-item btn btn-sm btn-primary" (click)="photoInput.click()">⬆ Upload</button>
+                        <button type="button" class="join-item btn btn-sm" (click)="openWebcam()">📷 Webcam</button>
+                        <button type="button" class="join-item btn btn-sm btn-ghost text-error" *ngIf="docValue('photoUrl')" (click)="clearImage('photoUrl')">Remove</button>
+                      </div>
+                      <input #photoInput type="file" accept="image/*" class="hidden" (change)="onFilePick($event, 'photoUrl', 640)" />
+                      <div class="text-xs opacity-60">
+                        Upload a JPG/PNG or capture from your webcam. Images are resized and saved with the student.
+                      </div>
+                      <span *ngIf="uploadingField() === 'photoUrl'" class="loading loading-spinner loading-sm"></span>
+                    </div>
                   </div>
-                  <div class="border-2 border-dashed border-base-300 rounded-lg p-6 text-center cursor-pointer hover:bg-base-200 transition-colors"
-                       (click)="comingSoon('File upload')">
-                    <div class="text-3xl opacity-50 mb-2">⬆</div>
-                    <div class="font-medium opacity-80">Drop photo here or click to upload</div>
-                    <div class="text-xs opacity-60 mt-1">Accepted: JPG, PNG (Max 5MB)</div>
-                  </div>
-                  <label class="form-control mt-3">
-                    <div class="label py-1"><span class="label-text">…or paste a photo URL</span></div>
-                    <input class="input input-bordered" formControlName="photoUrl" placeholder="https://…" />
-                  </label>
                 </div>
               </div>
 
               <!-- Documents -->
               <div class="card bg-base-100 border border-base-300 shadow-sm">
                 <div class="card-body p-4">
-                  <div class="font-semibold mb-3">Upload Documents</div>
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div *ngFor="let d of docFields" class="form-control">
-                      <div class="label py-1"><span class="label-text">{{ d.label }}</span></div>
-                      <div class="join">
-                        <button type="button" class="btn join-item" (click)="comingSoon('File upload')">Choose file</button>
-                        <span class="btn join-item btn-ghost no-animation pointer-events-none flex-1 opacity-60 text-xs justify-start">No file chosen</span>
+                  <div class="font-semibold mb-3">ID Documents <span class="text-xs opacity-60 font-normal">(optional)</span></div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div *ngFor="let d of docFields" class="flex items-center gap-3">
+                      <div class="w-16 h-16 rounded-lg border border-base-300 grid place-items-center overflow-hidden bg-base-200 shrink-0">
+                        <img *ngIf="docValue(d.urlField)" [src]="docValue(d.urlField)" class="w-full h-full object-cover" [alt]="d.label" />
+                        <span *ngIf="!docValue(d.urlField)" class="text-xl opacity-30">🪪</span>
                       </div>
-                      <input class="input input-bordered input-sm mt-1.5" [formControlName]="d.urlField" placeholder="…or paste URL" />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-sm font-medium truncate">{{ d.label }}</div>
+                        <div class="flex items-center gap-2 mt-1">
+                          <input #docInput type="file" accept="image/*" class="hidden" (change)="onFilePick($event, d.urlField, 1100)" />
+                          <button type="button" class="btn btn-xs" (click)="docInput.click()">
+                            {{ docValue(d.urlField) ? 'Replace' : 'Choose file' }}
+                          </button>
+                          <button type="button" class="btn btn-xs btn-ghost text-error" *ngIf="docValue(d.urlField)" (click)="clearImage(d.urlField)">Remove</button>
+                          <span *ngIf="uploadingField() === d.urlField" class="loading loading-spinner loading-xs"></span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -633,18 +616,18 @@ interface StepDef {
           <div class="card-actions justify-between mt-6 flex-wrap gap-2">
             <div class="flex gap-2">
               <button *ngIf="id()" type="button" class="btn btn-error btn-outline" (click)="remove()">Delete</button>
-              <button *ngIf="!id() && currentStep() > 0" type="button" class="btn btn-ghost" (click)="prev()">‹ Back</button>
+              <button *ngIf="showFullFlow() && currentStep() > 0" type="button" class="btn btn-ghost" (click)="prev()">‹ Back</button>
             </div>
             <div class="flex gap-2 ml-auto">
-              <button *ngIf="!id()" type="button" class="btn btn-ghost"
+              <button *ngIf="!id() || isDraftEdit()" type="button" class="btn btn-ghost"
                       (click)="submit(true)" [disabled]="saving() || !personalGroup.valid"
-                      title="Create the student now; you can add accommodation and payment later from their profile">
+                      title="Save now as a draft (status Pending); finish accommodation and payment later">
                 💾 Save as Draft
               </button>
-              <button *ngIf="!id() && currentStep() < steps().length - 1" type="button" class="btn btn-primary" (click)="next()">
+              <button *ngIf="currentStep() < steps().length - 1" type="button" class="btn btn-primary" (click)="next()">
                 Next Step ›
               </button>
-              <button *ngIf="id() || (!id() && currentStep() === steps().length - 1)"
+              <button *ngIf="currentStep() === steps().length - 1"
                       type="submit" class="btn btn-primary" [disabled]="saving()">
                 <span *ngIf="saving()" class="loading loading-spinner loading-sm"></span>
                 {{ saving() ? 'Saving…' : (id() ? 'Save changes' : 'Complete Registration') }}
@@ -665,7 +648,7 @@ interface StepDef {
         <p class="text-sm opacity-60 mt-1">This will appear in the dropdown for all staff in your tenant.</p>
         <label class="form-control mt-4">
           <div class="label py-1"><span class="label-text">Exam name *</span></div>
-          <input class="input input-bordered" [(ngModel)]="newExamName" [ngModelOptions]="{standalone: true}" placeholder="e.g. NDA, CDS, Railways NTPC" (keydown.enter)="submitNewExam(); $event.preventDefault()" />
+          <input class="input input-bordered input-sm" [(ngModel)]="newExamName" [ngModelOptions]="{standalone: true}" placeholder="e.g. NDA, CDS, Railways NTPC" (keydown.enter)="submitNewExam(); $event.preventDefault()" />
         </label>
         <div class="modal-action">
           <button type="button" class="btn btn-ghost" (click)="closeAddExam()">Cancel</button>
@@ -677,18 +660,33 @@ interface StepDef {
       </div>
       <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeAddExam()">close</button></form>
     </dialog>
+
+    <!-- Webcam capture modal -->
+    <dialog class="modal" [class.modal-open]="webcamOpen()">
+      <div class="modal-box max-w-lg">
+        <h3 class="font-bold text-lg mb-2">Capture student photo</h3>
+        <div class="rounded-lg overflow-hidden bg-black grid place-items-center aspect-video">
+          <video #webcamVideo autoplay playsinline muted class="w-full h-full object-contain"></video>
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost" (click)="closeWebcam()">Cancel</button>
+          <button type="button" class="btn btn-primary" (click)="capturePhoto()">📸 Capture</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeWebcam()">close</button></form>
+    </dialog>
   `,
   styles: [`
     .lms-stepper {
       position: relative;
       display: flex;
       justify-content: space-between;
-      padding: 1.5rem 1.5rem 1rem;
+      padding: .7rem 1.5rem .55rem;
       gap: .5rem;
     }
     .lms-stepper-track {
       position: absolute;
-      left: 3rem; right: 3rem; top: 2.65rem;
+      left: 3rem; right: 3rem; top: 1.575rem;
       height: 3px;
       background: hsl(var(--b3));
       border-radius: 999px;
@@ -696,7 +694,7 @@ interface StepDef {
     }
     .lms-stepper-progress {
       position: absolute;
-      left: 3rem; top: 2.65rem;
+      left: 3rem; top: 1.575rem;
       height: 3px;
       background: linear-gradient(90deg, hsl(var(--p)), hsl(var(--s)));
       border-radius: 999px;
@@ -712,15 +710,16 @@ interface StepDef {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: .35rem;
+      gap: .25rem;
       flex: 1;
       cursor: pointer;
     }
     .lms-step:disabled { cursor: not-allowed; opacity: .6; }
     .lms-step-circle {
-      width: 2.25rem; height: 2.25rem;
+      width: 1.75rem; height: 1.75rem;
       border-radius: 9999px;
       display: grid; place-items: center;
+      font-size: .8rem;
       background: hsl(var(--b1));
       border: 2px solid hsl(var(--b3));
       transition: background .25s ease, border-color .25s ease, transform .15s ease;
@@ -737,9 +736,9 @@ interface StepDef {
       color: hsl(var(--suc));
     }
     .lms-check { font-weight: 700; }
-    .lms-step-icon { font-size: 1rem; }
+    .lms-step-icon { font-size: .8rem; }
     .lms-step-label {
-      font-size: .7rem;
+      font-size: .65rem;
       text-transform: uppercase;
       letter-spacing: .08em;
       opacity: .7;
@@ -753,7 +752,7 @@ interface StepDef {
     }
   `],
 })
-export class StudentFormComponent implements OnInit {
+export class StudentFormComponent implements OnInit, OnDestroy {
   private fb = inject(FormBuilder);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -765,6 +764,10 @@ export class StudentFormComponent implements OnInit {
   private pgApi = inject(PgRoomsApiService);
   private paymentsApi = inject(PaymentsApiService);
   private toast = inject(ToastService);
+  private auth = inject(AuthService);
+
+  /** PG accommodation is only offered when the tenant has the PG Rooms feature enabled. */
+  pgEnabled = computed(() => this.auth.hasFeature(FeatureKey.PG_ROOMS));
 
   genders = Object.values(Gender);
   statuses = Object.values(StudentStatus);
@@ -777,6 +780,8 @@ export class StudentFormComponent implements OnInit {
 
   id = signal<string | null>(null);
   code = signal<string | null>(null);
+  /** Status of the student loaded in edit mode — drives the draft-completion flow. */
+  loadedStatus = signal<StudentStatus | null>(null);
   saving = signal(false);
   currentStep = signal(0);
   sameAddress = signal(false);
@@ -795,14 +800,20 @@ export class StudentFormComponent implements OnInit {
     { label: 'Other ID proof',       urlField: 'idProofUrl'      },
   ];
 
-  // Steps adapt to mode: edit shows only step 1.
+  /** True while completing a draft (PENDING) student in edit mode. */
+  isDraftEdit = computed(() => !!this.id() && this.loadedStatus() === StudentStatus.PENDING);
+  /** All steps are shown for both new registration and editing. */
+  showFullFlow = computed(() => true);
+
+  // Full multi-step flow in every mode. In edit, accommodation/payment are optional
+  // (only used to ADD a new allocation/initial payment).
   steps = computed<StepDef[]>(() => {
-    if (this.id()) {
-      return [{ key: 'personal', label: 'Personal', hint: 'Update student details.', icon: '👤' }];
-    }
+    const accomHint = this.id()
+      ? 'Optional — assign a cabin/PG only if not already allocated.'
+      : 'Pick a library cabin and/or a PG room bed.';
     return [
       { key: 'personal',      label: 'Personal Info',     hint: 'Identity, KYC, family and address.',           icon: '👤' },
-      { key: 'accommodation', label: 'Accommodation',     hint: 'Pick a library cabin and/or a PG room bed.',   icon: '🏠' },
+      { key: 'accommodation', label: 'Accommodation',     hint: accomHint,                                       icon: '🏠' },
       { key: 'payment',       label: 'Payment',           hint: 'Record the initial payment.',                  icon: '💳' },
       { key: 'documents',     label: 'Documents & Photo', hint: 'Optional — student photo and ID documents.',   icon: '📎' },
     ];
@@ -959,11 +970,16 @@ export class StudentFormComponent implements OnInit {
       error: () => { /* ignore */ },
     });
 
+    // When the tenant doesn't have PG enabled, there's only one accommodation type —
+    // preselect Cabin so registration flows straight through without a PG choice.
+    if (!this.pgEnabled()) this.setAccomType('CABIN_ONLY');
+
     const paramId = this.route.snapshot.paramMap.get('id');
     if (paramId && paramId !== 'new') {
       this.id.set(paramId);
       this.api.get(paramId).subscribe((s) => {
         this.code.set(s.code);
+        this.loadedStatus.set(s.status as StudentStatus);
         this.personalGroup.patchValue({
           fullName: s.fullName,
           phone: s.phone,
@@ -985,6 +1001,9 @@ export class StudentFormComponent implements OnInit {
         this.docsGroup.patchValue({
           photoUrl: s.photoUrl ?? '',
           idProofUrl: s.idProofUrl ?? '',
+          aadhaarFrontUrl: (s as any).aadhaarFrontUrl ?? '',
+          aadhaarBackUrl: (s as any).aadhaarBackUrl ?? '',
+          voterIdUrl: (s as any).voterIdUrl ?? '',
         });
         if (s.permanentAddress && s.permanentAddress === s.temporaryAddress) {
           this.sameAddress.set(true);
@@ -1104,6 +1123,105 @@ export class StudentFormComponent implements OnInit {
     this.toast.info(`${label} integration is coming soon. Use the URL field for now.`);
   }
 
+  // ===================== File upload & webcam =====================
+  @ViewChild('webcamVideo') webcamVideo?: ElementRef<HTMLVideoElement>;
+  webcamOpen = signal(false);
+  uploadingField = signal<string | null>(null);
+  private mediaStream: MediaStream | null = null;
+
+  /** Current data-URL/URL value of a documents-group control (for template previews). */
+  docValue(field: string): string {
+    return (this.docsGroup.value as any)[field] || '';
+  }
+
+  /** Read a picked image file, downscale it, and store the result as a data URL. */
+  onFilePick(ev: Event, field: string, maxDim = 1100) {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { this.toast.error('Please choose an image file'); input.value = ''; return; }
+    if (file.size > 10 * 1024 * 1024) { this.toast.error('Image too large (max 10MB)'); input.value = ''; return; }
+    this.uploadingField.set(field);
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.downscale(reader.result as string, maxDim).then((url) => {
+        this.docsGroup.patchValue({ [field]: url });
+        this.uploadingField.set(null);
+        input.value = '';
+      });
+    };
+    reader.onerror = () => { this.toast.error('Could not read image'); this.uploadingField.set(null); input.value = ''; };
+    reader.readAsDataURL(file);
+  }
+
+  clearImage(field: string) {
+    this.docsGroup.patchValue({ [field]: '' });
+  }
+
+  /** Shrink an image data URL to maxDim on its longest edge and re-encode as JPEG. */
+  private downscale(dataUrl: string, maxDim: number): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height = Math.round((height * maxDim) / width); width = maxDim; }
+        else if (height >= width && height > maxDim) { width = Math.round((width * maxDim) / height); height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+
+  async openWebcam() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.toast.error('Camera not supported on this device/browser');
+      return;
+    }
+    this.webcamOpen.set(true);
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      // Defer until the <video> is rendered by the open modal.
+      setTimeout(() => {
+        const v = this.webcamVideo?.nativeElement;
+        if (v && this.mediaStream) { v.srcObject = this.mediaStream; v.play().catch(() => undefined); }
+      }, 50);
+    } catch {
+      this.toast.error('Could not access the camera. Check browser permissions.');
+      this.webcamOpen.set(false);
+    }
+  }
+
+  capturePhoto() {
+    const video = this.webcamVideo?.nativeElement;
+    if (!video || !video.videoWidth) { this.toast.warning('Camera still starting — try again in a moment.'); return; }
+    const maxDim = 640;
+    let w = video.videoWidth, h = video.videoHeight;
+    if (w > h && w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+    else if (h >= w && h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d')?.drawImage(video, 0, 0, w, h);
+    this.docsGroup.patchValue({ photoUrl: canvas.toDataURL('image/jpeg', 0.78) });
+    this.closeWebcam();
+    this.toast.success('Photo captured');
+  }
+
+  closeWebcam() {
+    this.mediaStream?.getTracks().forEach((t) => t.stop());
+    this.mediaStream = null;
+    this.webcamOpen.set(false);
+  }
+
+  ngOnDestroy() {
+    this.closeWebcam();
+  }
+
   // ----- Add-exam modal -----
   openAddExam() {
     this.newExamName = '';
@@ -1134,7 +1252,7 @@ export class StudentFormComponent implements OnInit {
 
   // ----- Submit -----
   submit(asDraft = false) {
-    if (this.id()) return this.submitEdit();
+    if (this.id()) return this.completeDraft(asDraft);
     if (!this.personalGroup.valid) {
       this.personalGroup.markAllAsTouched();
       this.toast.warning('Personal info has missing or invalid fields.');
@@ -1166,6 +1284,10 @@ export class StudentFormComponent implements OnInit {
       examTarget: personal.examTarget || undefined,
       expiresAt: personal.expiresAt || undefined,
       photoUrl: docs.photoUrl || undefined,
+      aadhaarFrontUrl: docs.aadhaarFrontUrl || undefined,
+      aadhaarBackUrl: docs.aadhaarBackUrl || undefined,
+      voterIdUrl: docs.voterIdUrl || undefined,
+      status: asDraft ? StudentStatus.PENDING : undefined,
     };
 
     this.api.create(studentPayload).pipe(
@@ -1269,10 +1391,16 @@ export class StudentFormComponent implements OnInit {
   }
 
   /** Update flow (only personal info group is editable). */
-  private submitEdit() {
+  /**
+   * Edit/complete a student across all steps: update personal info + documents
+   * (+ status), and — unless saving as a draft — chain any newly-filled
+   * accommodation/initial-payment. Existing allocations aren't touched.
+   */
+  private completeDraft(asDraft: boolean) {
     if (!this.personalGroup.valid) {
       this.personalGroup.markAllAsTouched();
-      this.toast.warning('Some fields need attention.');
+      this.toast.warning('Personal info has missing or invalid fields.');
+      this.currentStep.set(0);
       return;
     }
     this.saving.set(true);
@@ -1298,11 +1426,37 @@ export class StudentFormComponent implements OnInit {
       examTarget: personal.examTarget || undefined,
       expiresAt: personal.expiresAt || undefined,
       photoUrl: docs.photoUrl || undefined,
-      status: personal.status,
+      aadhaarFrontUrl: docs.aadhaarFrontUrl || undefined,
+      aadhaarBackUrl: docs.aadhaarBackUrl || undefined,
+      voterIdUrl: docs.voterIdUrl || undefined,
+      status: asDraft ? StudentStatus.PENDING : (personal.status ?? StudentStatus.ACTIVE),
     };
-    this.api.update(this.id()!, payload).subscribe({
-      next: (s: any) => {
-        this.toast.success(`Saved changes to ${s.fullName}`);
+
+    const update$ = this.api.update(this.id()!, payload);
+
+    if (asDraft) {
+      update$.subscribe({
+        next: (s: any) => {
+          this.toast.success(`Draft saved for ${s.fullName}`);
+          this.router.navigate(['/students']);
+        },
+        error: (err) => {
+          const msg = err.error?.message;
+          this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? 'Save failed'));
+          this.saving.set(false);
+        },
+      });
+      return;
+    }
+
+    update$.pipe(switchMap((s: any) => this.chainAccommodationsAndPayments(s))).subscribe({
+      next: (r: any) => {
+        const errs = (r.accomResults ?? []).concat(r.paymentResults ?? []).filter((x: any) => x?.error);
+        if (errs.length > 0) {
+          this.toast.warning(`Saved ${r.student.fullName}, but: ${errs.map((e: any) => e.error).join(' · ')}`);
+        } else {
+          this.toast.success(`Saved changes to ${r.student.fullName} (${r.student.code})`);
+        }
         this.router.navigate(['/students']);
       },
       error: (err) => {

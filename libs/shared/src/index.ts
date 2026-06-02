@@ -7,3 +7,4 @@ export * from './types/attendance';
 export * from './types/payment';
 export * from './types/dashboard';
 export * from './types/api';
+export * from './types/admin';

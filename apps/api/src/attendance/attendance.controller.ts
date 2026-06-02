@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
 import { CheckInDto, ManualAttendanceDto } from './dto/check-in.dto';
@@ -34,5 +34,27 @@ export class AttendanceController {
   @Get()
   list(@Query('date') date: string, @Query('branchId') branchId?: string) {
     return this.service.listForDate(date, branchId);
+  }
+
+  @Get('report')
+  report(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('branchId') branchId?: string,
+    @Query('studentId') studentId?: string,
+    @Query('source') source?: string,
+  ) {
+    return this.service.report({ from, to, branchId, studentId, source });
+  }
+
+  @Get('students/:studentId')
+  listForStudent(@Param('studentId') studentId: string) {
+    return this.service.listForStudent(studentId);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.BRANCH_ADMIN)
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }

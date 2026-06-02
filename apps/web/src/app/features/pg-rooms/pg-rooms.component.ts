@@ -43,39 +43,39 @@ type SortField = 'number' | 'price' | 'occupancy';
     </div>
 
     <!-- =============================== KPI STRIP =============================== -->
-    <div class="card bg-base-100 border border-base-300 shadow-sm mb-4">
+    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 divide-x divide-base-200">
-        <div class="px-5 py-4">
-          <div class="text-[11px] uppercase tracking-wider opacity-60 mb-1">Total Rooms</div>
-          <div class="text-3xl font-bold leading-none">{{ stats()?.totalRooms ?? 0 }}</div>
+        <div class="px-3 py-2">
+          <div class="text-[10px] uppercase tracking-wider opacity-60">Total Rooms</div>
+          <div class="text-xl font-bold leading-tight">{{ stats()?.totalRooms ?? 0 }}</div>
         </div>
-        <div class="px-5 py-4">
-          <div class="text-[11px] uppercase tracking-wider opacity-60 mb-1">Total Beds</div>
-          <div class="text-3xl font-bold leading-none">{{ stats()?.totalBeds ?? 0 }}</div>
+        <div class="px-3 py-2">
+          <div class="text-[10px] uppercase tracking-wider opacity-60">Total Beds</div>
+          <div class="text-xl font-bold leading-tight">{{ stats()?.totalBeds ?? 0 }}</div>
         </div>
-        <div class="px-5 py-4">
-          <div class="text-[11px] uppercase tracking-wider opacity-60 mb-1">Occupied Beds</div>
-          <div class="text-3xl font-bold leading-none text-error">{{ stats()?.occupiedBeds ?? 0 }}</div>
+        <div class="px-3 py-2">
+          <div class="text-[10px] uppercase tracking-wider opacity-60">Occupied Beds</div>
+          <div class="text-xl font-bold leading-tight text-error">{{ stats()?.occupiedBeds ?? 0 }}</div>
         </div>
-        <div class="px-5 py-4">
-          <div class="text-[11px] uppercase tracking-wider opacity-60 mb-1">Available Beds</div>
-          <div class="text-3xl font-bold leading-none text-success">{{ stats()?.availableBeds ?? 0 }}</div>
+        <div class="px-3 py-2">
+          <div class="text-[10px] uppercase tracking-wider opacity-60">Available Beds</div>
+          <div class="text-xl font-bold leading-tight text-success">{{ stats()?.availableBeds ?? 0 }}</div>
         </div>
-        <div class="px-5 py-4">
-          <div class="text-[11px] uppercase tracking-wider opacity-60 mb-1">Single / Double</div>
-          <div class="text-3xl font-bold leading-none">{{ stats()?.singleRooms ?? 0 }}<span class="opacity-40 text-2xl"> / </span>{{ stats()?.doubleRooms ?? 0 }}</div>
+        <div class="px-3 py-2">
+          <div class="text-[10px] uppercase tracking-wider opacity-60">Single / Double</div>
+          <div class="text-xl font-bold leading-tight">{{ stats()?.singleRooms ?? 0 }}<span class="opacity-40 text-base"> / </span>{{ stats()?.doubleRooms ?? 0 }}</div>
         </div>
-        <div class="px-5 py-4">
-          <div class="text-[11px] uppercase tracking-wider opacity-60 mb-1">Triple Rooms</div>
-          <div class="text-3xl font-bold leading-none">{{ stats()?.tripleRooms ?? 0 }}</div>
+        <div class="px-3 py-2">
+          <div class="text-[10px] uppercase tracking-wider opacity-60">Triple Rooms</div>
+          <div class="text-xl font-bold leading-tight">{{ stats()?.tripleRooms ?? 0 }}</div>
         </div>
       </div>
     </div>
 
     <!-- =============================== FILTER BAR =============================== -->
-    <div class="card bg-base-100 border border-base-300 shadow-sm mb-4">
-      <div class="p-3 flex flex-row flex-wrap items-center gap-2">
-        <label class="input input-bordered flex items-center gap-2 flex-1 min-w-[260px]">
+    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3">
+      <div class="p-2 flex flex-row flex-wrap items-center gap-2">
+        <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[260px]">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
           </svg>
@@ -83,24 +83,24 @@ type SortField = 'number' | 'price' | 'occupancy';
                  placeholder="Search by room number or student name…" />
           <button *ngIf="search" class="opacity-60 hover:opacity-100 px-1" (click)="search=''; reload()">✕</button>
         </label>
-        <button class="btn btn-square btn-ghost" title="Filters">
+        <button class="btn btn-sm btn-square btn-ghost" title="Filters">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18M6 8h12M9 12h6M11 16h2" />
           </svg>
         </button>
-        <select class="select select-bordered" [(ngModel)]="typeFilter" (ngModelChange)="reload()">
+        <select class="select select-bordered select-sm" [(ngModel)]="typeFilter" (ngModelChange)="reload()">
           <option [ngValue]="undefined">All Types</option>
           <option value="SINGLE">Single</option>
           <option value="DOUBLE">Double</option>
           <option value="TRIPLE">Triple</option>
         </select>
-        <select class="select select-bordered" [(ngModel)]="availability" (ngModelChange)="reload()">
+        <select class="select select-bordered select-sm" [(ngModel)]="availability" (ngModelChange)="reload()">
           <option value="ALL">All Availability</option>
           <option value="AVAILABLE">Available</option>
           <option value="PARTIAL">Partial</option>
           <option value="FULL">Full</option>
         </select>
-        <select class="select select-bordered" [ngModel]="sortField()" (ngModelChange)="setSort($event)">
+        <select class="select select-bordered select-sm" [ngModel]="sortField()" (ngModelChange)="setSort($event)">
           <option value="number">Sort by Number</option>
           <option value="price">Sort by Price</option>
           <option value="occupancy">Sort by Occupancy</option>

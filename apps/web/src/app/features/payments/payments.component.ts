@@ -1,7 +1,8 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Subject, debounceTime } from 'rxjs';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { PaymentsApiService, PaymentRow } from './payments.service';
+import { PaymentsApiService, PaymentRow, PaymentSummary } from './payments.service';
 import { PaymentMethod, Student } from '@lms/shared';
 import { StudentsApiService } from '../students/students.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
@@ -34,15 +35,29 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
         <h1 class="text-2xl font-bold">Payments</h1>
         <p class="text-sm opacity-60">
           Record cash, UPI, and gateway payments. Allocations auto-confirm at ≥ 50% paid.
-          <span *ngIf="rows().length > 0"> · {{ rows().length }} record{{ rows().length === 1 ? '' : 's' }} · Total ₹{{ totalCollected() | number }}</span>
+          <span *ngIf="total() > 0"> · {{ total() }} record{{ total() === 1 ? '' : 's' }}</span>
         </p>
       </div>
       <button class="btn btn-primary btn-sm" (click)="openRecordModal()">+ Record payment</button>
     </div>
 
-    <div class="card bg-base-100 border border-base-300 mb-3">
-      <div class="card-body py-3 flex flex-row flex-wrap items-center gap-2">
-        <span class="text-xs opacity-60">Filter by payment date:</span>
+    <!-- Filter / search / sort bar -->
+    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3">
+      <div class="p-2 flex flex-row flex-wrap items-center gap-2">
+        <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[220px]">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+          </svg>
+          <input class="grow" [(ngModel)]="search" (ngModelChange)="onSearch()" placeholder="Search by student name, code, or phone…" />
+          <button *ngIf="search" class="opacity-60 hover:opacity-100 px-1" (click)="search=''; onSearch()">✕</button>
+        </label>
+        <select class="select select-bordered select-sm" [ngModel]="sortKey()" (ngModelChange)="setSort($event)">
+          <option value="date-desc">Newest first</option>
+          <option value="date-asc">Oldest first</option>
+          <option value="amount-desc">Amount (high→low)</option>
+          <option value="amount-asc">Amount (low→high)</option>
+          <option value="student-asc">Student (A→Z)</option>
+        </select>
         <lms-export-toolbar
           [dateFrom]="dateFrom"
           [dateTo]="dateTo"
@@ -61,6 +76,7 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
               <th>Receipt #</th>
               <th>Student</th>
               <th class="text-right">Amount</th>
+              <th class="text-right">Balance</th>
               <th>Method</th>
               <th>Notes</th>
               <th>Status</th>
@@ -78,6 +94,9 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
                 <div class="opacity-60 text-xs">{{ p.student.code }} · {{ p.student.phone }}</div>
               </td>
               <td class="text-right font-medium">₹{{ p.amount | number }}</td>
+              <td class="text-right" [class.text-error]="(p.balance ?? 0) > 0" [class.opacity-50]="(p.balance ?? 0) === 0">
+                {{ p.monthlyFee ? ('₹' + (p.balance | number)) : '—' }}
+              </td>
               <td><span class="badge badge-outline badge-sm">{{ labelFor(p.method) }}</span></td>
               <td class="text-sm opacity-70 max-w-xs truncate" [title]="p.notes ?? ''">{{ p.notes || '—' }}</td>
               <td>
@@ -90,37 +109,46 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
                 </span>
               </td>
               <td class="text-right">
-                <div class="join">
-                  <button class="btn btn-xs join-item btn-primary btn-outline" (click)="printReceipt(p)" title="Open printable receipt">
-                    🧾 Receipt
-                  </button>
-                  <div class="dropdown dropdown-end join-item">
-                    <div tabindex="0" role="button" class="btn btn-xs btn-outline">
-                      Send
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                    <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 mt-1 w-44 p-2 border border-base-300">
-                      <li><a (click)="sendVia(p, 'email')"><span>✉</span> Email</a></li>
-                      <li><a (click)="sendVia(p, 'sms')"><span>💬</span> SMS</a></li>
-                      <li><a (click)="sendVia(p, 'whatsapp')"><span>🟢</span> WhatsApp</a></li>
-                    </ul>
+                <div class="dropdown dropdown-end">
+                  <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square">
+                    <span class="text-lg leading-none">⋯</span>
                   </div>
+                  <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 w-52 p-2 border border-base-300">
+                    <li><a (click)="openDetail(p)"><span>👁</span> View details</a></li>
+                    <li><a (click)="printReceipt(p)"><span>🧾</span> Print receipt</a></li>
+                    <li class="menu-title text-xs">Send receipt</li>
+                    <li><a (click)="sendVia(p, 'email')"><span>✉</span> Email</a></li>
+                    <li><a (click)="sendVia(p, 'sms')"><span>💬</span> SMS</a></li>
+                    <li><a (click)="sendVia(p, 'whatsapp')"><span>🟢</span> WhatsApp</a></li>
+                    <div class="divider my-1"></div>
+                    <li><a class="text-error" (click)="confirmDeletePayment(p)"><span>🗑</span> Delete payment</a></li>
+                  </ul>
                 </div>
               </td>
             </tr>
             <tr *ngIf="rows().length === 0">
-              <td colspan="8" class="text-center opacity-60 py-8">No payments yet — click "Record payment" to log one.</td>
+              <td colspan="9" class="text-center opacity-60 py-8">No payments match your filters.</td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
 
+    <!-- Pagination -->
+    <div class="flex items-center justify-between mt-4 text-sm flex-wrap gap-2" *ngIf="total() > 0">
+      <div class="opacity-60">
+        Showing {{ (page() - 1) * limit + 1 }}–{{ rangeEnd() }} of {{ total() }}
+      </div>
+      <div class="join">
+        <button class="btn btn-sm join-item" (click)="goTo(page() - 1)" [disabled]="page() === 1">Previous</button>
+        <button class="btn btn-sm join-item btn-active">{{ page() }} / {{ totalPages() }}</button>
+        <button class="btn btn-sm join-item" (click)="goTo(page() + 1)" [disabled]="page() >= totalPages()">Next</button>
+      </div>
+    </div>
+
     <!-- ============================================ RECORD PAYMENT MODAL ================================ -->
     <dialog class="modal" [class.modal-open]="modalOpen()">
-      <div class="modal-box max-w-lg">
+      <div class="modal-box max-w-lg max-h-[90vh] overflow-y-auto">
         <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="closeModal()">✕</button></form>
         <h3 class="font-bold text-lg">Record payment</h3>
         <p class="text-sm opacity-60">Student-side payments and offline cash receipts.</p>
@@ -147,6 +175,15 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
                 <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
               </select>
             </label>
+          </div>
+
+          <!-- Live balance for the selected student -->
+          <div *ngIf="selectedSummary() as ss" class="text-xs rounded-lg bg-base-200 p-2 flex flex-wrap gap-x-4 gap-y-1">
+            <span>Monthly fee: <strong>₹{{ ss.monthlyTotal | number }}</strong></span>
+            <span>Paid so far: <strong>₹{{ ss.totalPaid | number }}</strong></span>
+            <span>Balance after this payment:
+              <strong [class.text-error]="balanceAfter() > 0" [class.text-success]="balanceAfter() === 0">₹{{ balanceAfter() | number }}</strong>
+            </span>
           </div>
 
           <div class="form-control">
@@ -185,7 +222,7 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
             </div>
           </label>
 
-          <div class="modal-action">
+          <div class="modal-action sticky bottom-0 bg-base-100 pt-3 mt-2 border-t border-base-300">
             <button type="button" class="btn btn-ghost" (click)="closeModal()">Cancel</button>
             <button class="btn btn-primary" type="submit" [disabled]="form.invalid || saving()">
               <span *ngIf="saving()" class="loading loading-spinner loading-sm"></span>
@@ -195,6 +232,119 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
         </form>
       </div>
       <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeModal()">close</button></form>
+    </dialog>
+
+    <!-- ============================================ PAYMENT DETAIL MODAL ================================ -->
+    <dialog class="modal" [class.modal-open]="!!detailPayment()">
+      <div class="modal-box max-w-2xl max-h-[90vh] overflow-y-auto" *ngIf="detailPayment() as p">
+        <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="closeDetail()">✕</button></form>
+        <h3 class="font-bold text-lg">{{ p.student.fullName }}</h3>
+        <p class="text-sm opacity-60">{{ p.student.code }} · {{ p.student.phone }}</p>
+
+        <div *ngIf="detailLoading()" class="text-center py-8"><span class="loading loading-spinner loading-md"></span></div>
+
+        <ng-container *ngIf="!detailLoading() && detail() as d">
+          <!-- This payment's status -->
+          <div class="alert mt-3 py-2"
+               [class.alert-success]="payStatus(p, d) === 'Full'"
+               [class.alert-warning]="payStatus(p, d) === 'Partial'">
+            <span class="text-sm">
+              This payment of <strong>₹{{ p.amount | number }}</strong>
+              <ng-container *ngIf="d.monthlyTotal > 0">
+                is a <strong>{{ payStatus(p, d) }}</strong> payment of the ₹{{ d.monthlyTotal | number }} monthly fee.
+                <ng-container *ngIf="payStatus(p, d) === 'Partial'">
+                  Balance for this cycle: <strong>₹{{ cycleBalance(p, d) | number }}</strong>.
+                </ng-container>
+              </ng-container>
+              <ng-container *ngIf="d.monthlyTotal === 0">— no active allocation to compare against.</ng-container>
+            </span>
+          </div>
+
+          <!-- Summary cards -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div class="card bg-base-100 border border-base-300 p-3">
+              <div class="text-[10px] uppercase tracking-wider opacity-60">Monthly fee</div>
+              <div class="text-lg font-bold">₹{{ d.monthlyTotal | number }}</div>
+            </div>
+            <div class="card bg-base-100 border border-base-300 p-3">
+              <div class="text-[10px] uppercase tracking-wider opacity-60">Total paid</div>
+              <div class="text-lg font-bold text-success">₹{{ d.totalPaid | number }}</div>
+            </div>
+            <div class="card bg-base-100 border border-base-300 p-3">
+              <div class="text-[10px] uppercase tracking-wider opacity-60">This payment</div>
+              <div class="text-lg font-bold">₹{{ p.amount | number }}</div>
+            </div>
+            <div class="card bg-base-100 border border-base-300 p-3">
+              <div class="text-[10px] uppercase tracking-wider opacity-60">Cycle balance</div>
+              <div class="text-lg font-bold" [class.text-error]="cycleBalance(p, d) > 0">₹{{ cycleBalance(p, d) | number }}</div>
+            </div>
+          </div>
+
+          <!-- Allocations -->
+          <div *ngIf="d.allocations.length > 0" class="mt-4">
+            <div class="text-xs uppercase tracking-wider opacity-60 mb-1">Active allocations</div>
+            <div class="flex flex-wrap gap-2">
+              <span *ngFor="let a of d.allocations" class="badge badge-outline gap-1 py-3">
+                {{ a.label }} · ₹{{ a.monthlyRate | number }}/mo
+                <span *ngIf="a.nextDueDate" class="opacity-60">· due {{ a.nextDueDate | date:'dd MMM yy' }}</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- History -->
+          <div class="divider text-xs my-3">Payment history ({{ d.payments.length }})</div>
+          <div class="overflow-x-auto max-h-72">
+            <table class="table table-sm table-pin-rows">
+              <thead><tr><th>Date</th><th class="text-right">Amount</th><th>Method</th><th>Status</th><th>Notes</th></tr></thead>
+              <tbody>
+                <tr *ngFor="let h of d.payments" class="hover" [class.bg-base-200]="h.id === p.id">
+                  <td class="text-xs">{{ (h.paidAt || h.createdAt) | date:'dd MMM yy, HH:mm' }}</td>
+                  <td class="text-right font-medium">₹{{ h.amount | number }}</td>
+                  <td><span class="badge badge-ghost badge-sm">{{ labelFor(h.method) }}</span></td>
+                  <td>
+                    <span class="badge badge-sm"
+                      [class.badge-success]="h.status === 'PAID'"
+                      [class.badge-warning]="h.status === 'PENDING'"
+                      [class.badge-error]="h.status === 'FAILED'"
+                      [class.badge-ghost]="h.status === 'REFUNDED'">{{ h.status }}</span>
+                  </td>
+                  <td class="text-xs opacity-70 max-w-[160px] truncate" [title]="h.notes ?? ''">{{ h.notes || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </ng-container>
+
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="closeDetail()">Close</button>
+          <button class="btn btn-primary btn-outline" (click)="printReceipt(p)">🧾 Receipt</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeDetail()">close</button></form>
+    </dialog>
+
+    <!-- ============================================ DELETE PAYMENT MODAL ================================ -->
+    <dialog class="modal" [class.modal-open]="!!deleting()">
+      <div class="modal-box" *ngIf="deleting() as p">
+        <h3 class="font-bold text-lg text-error">Delete payment?</h3>
+        <p class="py-2 text-sm">
+          Deleting ₹{{ p.amount | number }} from <strong>{{ p.student.fullName }}</strong> ({{ p.student.code }}).
+          The record is kept for audit but removed from all lists and totals.
+        </p>
+        <label class="form-control">
+          <div class="label py-1"><span class="label-text">Reason for deletion *</span></div>
+          <textarea class="textarea textarea-bordered" rows="2" [(ngModel)]="deleteReason"
+                    placeholder="e.g. duplicate entry, wrong amount, recorded for wrong student"></textarea>
+        </label>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="closeDeletePayment()">Cancel</button>
+          <button class="btn btn-error" (click)="doDeletePayment()" [disabled]="!deleteReason.trim() || deletingBusy()">
+            <span *ngIf="deletingBusy()" class="loading loading-spinner loading-sm"></span>
+            Delete payment
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeDeletePayment()">close</button></form>
     </dialog>
   `,
 })
@@ -213,15 +363,34 @@ export class PaymentsComponent implements OnInit {
   modalOpen = signal(false);
   saving = signal(false);
 
+  // Payment detail / history
+  detailPayment = signal<PaymentRow | null>(null);
+  detail = signal<PaymentSummary | null>(null);
+  detailLoading = signal(false);
+
+  // Soft delete
+  deleting = signal<PaymentRow | null>(null);
+  deleteReason = '';
+  deletingBusy = signal(false);
+
+  // Live balance for the student selected in the Record modal
+  selectedSummary = signal<PaymentSummary | null>(null);
+
   dateFrom = '';
   dateTo = '';
 
+  // Search / sort / pagination
+  total = signal(0);
+  page = signal(1);
+  limit = 25;
+  search = '';
+  sortBy = signal<'date' | 'amount' | 'student'>('date');
+  sortOrder = signal<'asc' | 'desc'>('desc');
+  sortKey = computed(() => `${this.sortBy()}-${this.sortOrder()}`);
+  private search$ = new Subject<void>();
+
   methods = METHODS;
   labelFor = (m: PaymentMethod) => METHOD_LABELS[m];
-
-  totalCollected = computed(() =>
-    this.rows().filter((p) => p.status === 'PAID').reduce((s, p) => s + Number(p.amount || 0), 0),
-  );
 
   form = this.fb.group({
     studentId: ['', Validators.required],
@@ -241,37 +410,129 @@ export class PaymentsComponent implements OnInit {
   );
 
   ngOnInit() {
+    this.search$.pipe(debounceTime(250)).subscribe(() => { this.page.set(1); this.reload(); });
     this.reload();
     this.branchesApi.list().subscribe((bs) => this.branches.set(bs));
     this.studentsApi.list({ limit: 200, sortBy: 'fullName', sortOrder: 'asc', status: 'ACTIVE' })
       .subscribe((r) => this.students.set(r.data as any));
+    // Load the selected student's fee/paid summary so the modal can show a live balance.
+    this.form.controls.studentId.valueChanges.subscribe((id) => {
+      this.selectedSummary.set(null);
+      if (id) this.api.studentSummary(id).subscribe({ next: (s) => this.selectedSummary.set(s), error: () => undefined });
+    });
+  }
+
+  /** Balance left on the monthly fee after the amount currently entered. */
+  balanceAfter(): number {
+    const ss = this.selectedSummary();
+    if (!ss) return 0;
+    const amount = Number(this.form.value.amount) || 0;
+    return Math.max(0, ss.monthlyTotal - amount);
   }
 
   reload() {
     this.api.list({
       dateFrom: this.dateFrom || undefined,
       dateTo: this.dateTo || undefined,
+      search: this.search || undefined,
+      sortBy: this.sortBy(),
+      sortOrder: this.sortOrder(),
+      page: this.page(),
+      limit: this.limit,
     }).subscribe({
-      next: (r) => this.rows.set(r),
+      next: (r) => { this.rows.set(r.data); this.total.set(r.total); },
       error: () => this.toast.error('Could not load payments'),
     });
+  }
+
+  onSearch() { this.search$.next(); }
+
+  setSort(key: string) {
+    const [field, order] = key.split('-') as ['date' | 'amount' | 'student', 'asc' | 'desc'];
+    this.sortBy.set(field);
+    this.sortOrder.set(order);
+    this.page.set(1);
+    this.reload();
   }
 
   onRangeChange(r: { from: string; to: string }) {
     this.dateFrom = r.from;
     this.dateTo = r.to;
+    this.page.set(1);
     this.reload();
   }
+
+  goTo(p: number) {
+    if (p < 1 || p > this.totalPages() || p === this.page()) return;
+    this.page.set(p);
+    this.reload();
+  }
+  totalPages(): number { return Math.max(1, Math.ceil(this.total() / this.limit)); }
+  rangeEnd(): number { return Math.min(this.page() * this.limit, this.total()); }
 
   doExport(kind: 'csv' | 'pdf') {
     this.api.list({
       dateFrom: this.dateFrom || undefined,
       dateTo: this.dateTo || undefined,
+      search: this.search || undefined,
+      sortBy: this.sortBy(),
+      sortOrder: this.sortOrder(),
       limit: 5000,
     }).subscribe({
-      next: (rows) => this.buildExport(rows, kind),
+      next: (res) => this.buildExport(res.data, kind),
       error: () => this.toast.error('Could not load payments for export'),
     });
+  }
+
+  openDetail(p: PaymentRow) {
+    (document.activeElement as HTMLElement | null)?.blur();
+    this.detailPayment.set(p);
+    this.detail.set(null);
+    this.detailLoading.set(true);
+    this.api.studentSummary(p.student.id).subscribe({
+      next: (s) => { this.detail.set(s); this.detailLoading.set(false); },
+      error: () => { this.toast.error('Could not load payment details'); this.detailLoading.set(false); },
+    });
+  }
+  closeDetail() {
+    this.detailPayment.set(null);
+    this.detail.set(null);
+  }
+
+  confirmDeletePayment(p: PaymentRow) {
+    (document.activeElement as HTMLElement | null)?.blur();
+    this.deleteReason = '';
+    this.deleting.set(p);
+  }
+  closeDeletePayment() {
+    this.deleting.set(null);
+    this.deletingBusy.set(false);
+  }
+  doDeletePayment() {
+    const p = this.deleting();
+    if (!p || !this.deleteReason.trim()) return;
+    this.deletingBusy.set(true);
+    this.api.deletePayment(p.id, this.deleteReason.trim()).subscribe({
+      next: () => {
+        this.toast.success(`Deleted ₹${p.amount} payment from ${p.student.fullName}`);
+        this.closeDeletePayment();
+        this.reload();
+      },
+      error: (err) => {
+        this.toast.error(err.error?.message ?? 'Could not delete payment');
+        this.deletingBusy.set(false);
+      },
+    });
+  }
+
+  /** Whether the given payment fully covers the monthly fee. */
+  payStatus(p: PaymentRow, d: PaymentSummary): 'Full' | 'Partial' | '—' {
+    if (!d.monthlyTotal) return '—';
+    return Number(p.amount) >= d.monthlyTotal ? 'Full' : 'Partial';
+  }
+  /** Outstanding for the monthly cycle after this payment (never negative). */
+  cycleBalance(p: PaymentRow, d: PaymentSummary): number {
+    return Math.max(0, d.monthlyTotal - Number(p.amount));
   }
 
   receiptNo(p: PaymentRow): string {
