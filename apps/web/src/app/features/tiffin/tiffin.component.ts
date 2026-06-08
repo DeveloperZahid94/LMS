@@ -75,6 +75,7 @@ type StatusFilter = 'ALL' | TiffinStatus;
               <th>Student</th>
               <th>Meal plan</th>
               <th>Fee</th>
+              <th>Paid / Balance</th>
               <th>Delivery</th>
               <th>Next due</th>
               <th>Status</th>
@@ -96,7 +97,16 @@ type StatusFilter = 'ALL' | TiffinStatus;
                 </div>
                 <div class="text-xs opacity-50 mt-0.5" *ngIf="t.pausedDays > 0">{{ t.pausedDays }} day(s) paused total</div>
               </td>
-              <td class="font-medium">₹{{ t.monthlyRate | number }}</td>
+              <td class="font-medium">₹{{ t.monthlyRate | number }}<span class="opacity-50 text-xs">/mo</span></td>
+              <td>
+                <div class="text-xs">Paid: <span class="font-medium">₹{{ t.paidAmount | number }}</span></div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span *ngIf="t.balance > 0" class="badge badge-error badge-sm" title="Tiffin amount due">₹{{ t.balance | number }} due</span>
+                  <span *ngIf="t.balance < 0" class="badge badge-success badge-sm" title="Tiffin advance / credit">₹{{ -t.balance | number }} adv</span>
+                  <span *ngIf="t.balance === 0" class="text-xs opacity-50">Settled</span>
+                  <button *ngIf="t.balance > 0" class="btn btn-ghost btn-xs text-error" (click)="openSettle(t)" title="Collect tiffin payment">Collect</button>
+                </div>
+              </td>
               <td>
                 <div *ngIf="t.deliveryAssignee; else noDel" class="text-sm">
                   <div class="font-medium">{{ t.deliveryAssignee }}</div>
@@ -135,12 +145,12 @@ type StatusFilter = 'ALL' | TiffinStatus;
               </td>
             </tr>
             <tr *ngIf="filtered().length === 0 && !loading()">
-              <td colspan="7" class="text-center opacity-60 py-10">
+              <td colspan="8" class="text-center opacity-60 py-10">
                 <div class="text-base mb-1">No tiffin subscriptions match your filters.</div>
                 <a routerLink="/students/new" class="link link-primary text-sm">Register a student with tiffin →</a>
               </td>
             </tr>
-            <tr *ngIf="loading()"><td colspan="7" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
+            <tr *ngIf="loading()"><td colspan="8" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
           </tbody>
         </table>
       </div>
@@ -250,6 +260,18 @@ type StatusFilter = 'ALL' | TiffinStatus;
           <div><div class="opacity-50 text-xs uppercase">Next due</div>{{ t.nextDueDate ? (t.nextDueDate | date:'dd/MM/yyyy') : '—' }}</div>
           <div><div class="opacity-50 text-xs uppercase">Delivery</div>{{ t.deliveryAssignee || '—' }}<span *ngIf="t.deliveryPhone"> · {{ t.deliveryPhone }}</span></div>
           <div><div class="opacity-50 text-xs uppercase">Total paused</div>{{ t.pausedDays }} day(s)</div>
+          <div><div class="opacity-50 text-xs uppercase">Tiffin paid</div>₹{{ t.paidAmount | number }}</div>
+          <div>
+            <div class="opacity-50 text-xs uppercase">Tiffin balance</div>
+            <div class="flex items-center gap-2">
+              <span *ngIf="t.balance > 0" class="font-semibold text-error">₹{{ t.balance | number }} due</span>
+              <span *ngIf="t.balance < 0" class="font-semibold text-success">₹{{ -t.balance | number }} advance</span>
+              <span *ngIf="t.balance === 0" class="opacity-60">Settled</span>
+              <button class="btn btn-xs" [class.btn-error]="t.balance > 0" [class.btn-ghost]="t.balance <= 0" (click)="openSettle(t)">
+                💰 {{ t.balance > 0 ? 'Collect' : 'Add payment' }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="divider my-2">Pause history</div>
@@ -289,6 +311,39 @@ type StatusFilter = 'ALL' | TiffinStatus;
       </div>
       <form method="dialog" class="modal-backdrop"><button type="button" (click)="ending.set(null)">close</button></form>
     </dialog>
+
+    <!-- ============ COLLECT / SETTLE MODAL ============ -->
+    <dialog class="modal" [class.modal-open]="!!settling()">
+      <div class="modal-box max-w-sm" *ngIf="settling() as t">
+        <h3 class="font-bold text-lg">💰 {{ balanceOf(t) > 0 ? 'Collect balance' : 'Add advance payment' }}</h3>
+        <p class="text-sm opacity-70 mt-1" *ngIf="balanceOf(t) > 0">
+          Outstanding for <strong>{{ t.student?.fullName }}</strong>: <span class="text-error font-semibold">₹{{ balanceOf(t) | number }}</span>
+        </p>
+        <p class="text-sm opacity-70 mt-1" *ngIf="balanceOf(t) <= 0">
+          No dues for <strong>{{ t.student?.fullName }}</strong>. This is stored as advance/credit on the account.
+        </p>
+        <label class="form-control mt-3">
+          <div class="label py-1"><span class="label-text">Amount collecting now (₹)</span></div>
+          <input class="input input-bordered input-sm" type="number" min="1" [(ngModel)]="settleAmount" />
+        </label>
+        <label class="form-control mt-2">
+          <div class="label py-1"><span class="label-text">Method</span></div>
+          <select class="select select-bordered select-sm" [(ngModel)]="settleMethod">
+            <option value="CASH">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="NETBANKING">Bank transfer</option>
+            <option value="CARD">Card</option>
+          </select>
+        </label>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="settling.set(null)">Cancel</button>
+          <button class="btn btn-success" [disabled]="busy() || settleAmount < 1" (click)="doSettle()">
+            <span *ngIf="busy()" class="loading loading-spinner loading-sm"></span> Save payment
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="settling.set(null)">close</button></form>
+    </dialog>
   `,
 })
 export class TiffinComponent implements OnInit {
@@ -315,6 +370,9 @@ export class TiffinComponent implements OnInit {
   assigning = signal<TiffinSubscription | null>(null);
   detail = signal<TiffinSubscription | null>(null);
   ending = signal<TiffinSubscription | null>(null);
+  settling = signal<TiffinSubscription | null>(null);
+  settleAmount = 0;
+  settleMethod = 'CASH';
 
   pauseDate = this.todayIso();
   pauseReason = '';
@@ -396,6 +454,32 @@ export class TiffinComponent implements OnInit {
     this.api.get(t.id).subscribe({ next: (full) => this.detail.set(full), error: () => {} });
   }
   confirmEnd(t: TiffinSubscription) { this.ending.set(t); this.blur(); }
+
+  /** Tiffin-specific balance (signed): >0 due, <0 advance/credit. */
+  balanceOf(t: TiffinSubscription): number { return Number(t.balance ?? 0); }
+
+  openSettle(t: TiffinSubscription) {
+    const bal = this.balanceOf(t);
+    this.settleAmount = bal > 0 ? bal : 0;
+    this.settleMethod = 'CASH';
+    this.settling.set(t);
+    this.blur();
+  }
+  doSettle() {
+    const t = this.settling();
+    if (!t || this.settleAmount < 1) return;
+    const amt = this.settleAmount;
+    this.busy.set(true);
+    this.api.collect(t.id, { amount: amt, method: this.settleMethod }).subscribe({
+      next: (sub) => {
+        const b = Number(sub.balance ?? 0);
+        const state = b > 0 ? `₹${b.toLocaleString('en-IN')} still due` : b < 0 ? `₹${(-b).toLocaleString('en-IN')} advance` : 'fully paid';
+        this.toast.success(`Collected ₹${amt.toLocaleString('en-IN')} · tiffin ${state}`);
+        this.afterAction(() => this.settling.set(null));
+      },
+      error: (e) => this.fail(e, 'Could not record payment'),
+    });
+  }
 
   // ----- actions -----
   doPause() {

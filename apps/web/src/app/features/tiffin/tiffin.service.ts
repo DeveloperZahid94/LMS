@@ -12,6 +12,7 @@ export interface StudentRef {
   fullName: string;
   phone: string;
   email: string | null;
+  outstandingBalance?: number;
 }
 
 export interface TiffinPause {
@@ -30,6 +31,8 @@ export interface TiffinSubscription {
   mealType: TiffinMealType;
   mealPlan: TiffinMealPlan;
   monthlyRate: number;
+  paidAmount: number;
+  balance: number;
   startDate: string;
   endDate: string | null;
   nextDueDate: string | null;
@@ -62,6 +65,7 @@ export interface CreateTiffinSubscriptionDto {
   nextDueDate?: string;
   deliveryAssignee?: string;
   deliveryPhone?: string;
+  initialPayment?: number;
   notes?: string;
 }
 
@@ -112,6 +116,10 @@ export class TiffinApiService {
 
   resume(id: string, body: { resumedAt?: string } = {}) {
     return this.http.post<TiffinSubscription>(`${this.base}/${id}/resume`, body);
+  }
+
+  collect(id: string, body: { amount: number; method?: string; notes?: string }) {
+    return this.http.post<TiffinSubscription>(`${this.base}/${id}/collect`, body);
   }
 
   end(id: string) {

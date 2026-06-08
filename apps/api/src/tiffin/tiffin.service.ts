@@ -3,9 +3,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
 import {
-  CreateTiffinSubscriptionDto, PauseTiffinDto, ResumeTiffinDto,
+  CollectTiffinDto, CreateTiffinSubscriptionDto, PauseTiffinDto, ResumeTiffinDto,
   TiffinListQueryDto, UpdateTiffinSubscriptionDto,
 } from './dto/tiffin.dto';
+import { PaymentMethod, PaymentStatus } from '@lms/shared';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -86,6 +87,8 @@ export class TiffinService {
     });
     if (existing) throw new BadRequestException('Student already has an active tiffin subscription');
 
+    const paid = Number(dto.initialPayment ?? 0);
+    const balance = Number((Number(dto.monthlyRate) - paid).toFixed(2));
     const created = await this.db.tiffinSubscription.create({
       data: {
         tenantId,
@@ -94,6 +97,8 @@ export class TiffinService {
         mealType: dto.mealType,
         mealPlan: dto.mealPlan,
         monthlyRate: dto.monthlyRate,
+        paidAmount: paid,
+        balance,
         startDate: dto.startDate ? new Date(dto.startDate) : new Date(),
         nextDueDate: dto.nextDueDate ? new Date(dto.nextDueDate) : null,
         deliveryAssignee: dto.deliveryAssignee ?? null,
@@ -214,6 +219,44 @@ export class TiffinService {
     return updated;
   }
 
+  /**
+   * Record a tiffin payment: logs a PAID payment tagged [Tiffin], adds to paidAmount,
+   * and reduces the tiffin balance (overpay rolls into advance — negative balance).
+   */
+  async collect(id: string, dto: CollectTiffinDto) {
+    const tenantId = this.tenantCtx.tenantId;
+    const sub = await this.db.tiffinSubscription.findFirst({ where: { id, tenantId } });
+    if (!sub) throw new NotFoundException('Tiffin subscription not found');
+    const amount = Number(dto.amount);
+    if (amount <= 0) throw new BadRequestException('Amount must be greater than 0');
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        tenantId,
+        branchId: sub.branchId,
+        studentId: sub.studentId,
+        amount,
+        method: (dto.method as any) ?? PaymentMethod.CASH,
+        status: PaymentStatus.PAID,
+        paidAt: new Date(),
+        notes: dto.notes ? `[Tiffin] ${dto.notes}` : '[Tiffin] payment',
+      },
+    });
+
+    const newPaid = Number((Number(sub.paidAmount ?? 0) + amount).toFixed(2));
+    const newBalance = Number((Number(sub.balance ?? 0) - amount).toFixed(2));
+    await this.db.tiffinSubscription.update({
+      where: { id },
+      data: { paidAmount: newPaid, balance: newBalance },
+    });
+    await this.audit.record({
+      tenantId, userId: this.tenantCtx.userId,
+      action: 'TIFFIN_COLLECT', entity: 'tiffin_subscriptions', entityId: id,
+      diff: { amount, paidAmount: newPaid, balance: newBalance, paymentId: payment.id },
+    });
+    return this.get(id);
+  }
+
   private shape(r: any) {
     const pauses = (r.pauses ?? []).map((p: any) => ({
       id: p.id,
@@ -238,6 +281,8 @@ export class TiffinService {
       deliveryAssignee: r.deliveryAssignee ?? null,
       deliveryPhone: r.deliveryPhone ?? null,
       pausedDays: r.pausedDays ?? 0,
+      paidAmount: r.paidAmount != null ? Number(r.paidAmount) : 0,
+      balance: r.balance != null ? Number(r.balance) : 0,
       notes: r.notes,
       student: r.student ?? null,
       branch: r.branch ?? null,

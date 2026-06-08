@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { TiffinService } from './tiffin.service';
 import {
-  CreateTiffinSubscriptionDto, PauseTiffinDto, ResumeTiffinDto,
+  CollectTiffinDto, CreateTiffinSubscriptionDto, PauseTiffinDto, ResumeTiffinDto,
   TiffinListQueryDto, UpdateTiffinSubscriptionDto,
 } from './dto/tiffin.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -48,6 +48,11 @@ export class TiffinController {
   @Post(':id/resume')
   resume(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ResumeTiffinDto) {
     return this.service.resume(id, dto);
+  }
+
+  @Post(':id/collect')
+  collect(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CollectTiffinDto) {
+    return this.service.collect(id, dto);
   }
 
   @Delete(':id')

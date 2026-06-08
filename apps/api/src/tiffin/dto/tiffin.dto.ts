@@ -16,6 +16,7 @@ export enum TiffinMealPlan {
 
 export enum TiffinStatus {
   ACTIVE = 'ACTIVE',
+  PAUSED = 'PAUSED',
   ENDED = 'ENDED',
 }
 
@@ -52,6 +53,28 @@ export class CreateTiffinSubscriptionDto {
   @IsOptional()
   @IsString()
   deliveryPhone?: string;
+
+  /** Amount collected toward tiffin at registration (part payment / advance allowed). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  initialPayment?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class CollectTiffinDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  method?: string;
 
   @IsOptional()
   @IsString()

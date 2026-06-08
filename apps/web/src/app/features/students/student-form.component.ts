@@ -1100,17 +1100,18 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   hasPg    = computed(() => this.accomType() === 'PG_ONLY'    || this.accomType() === 'BOTH');
   hasTiffin = computed(() => this.tiffinActive());
 
-  cabinFee     = computed(() => this.hasCabin() ? Number(this.cabinGroup.value.monthlyFee || 0) : 0);
-  pgFee        = computed(() => this.hasPg() ? Number(this.pgGroup.value.monthlyFee || 0) : 0);
-  tiffinFee    = computed(() => this.hasTiffin() ? Number(this.tiffinGroup.value.monthlyFee || 0) : 0);
-  totalMonthly = computed(() => this.cabinFee() + this.pgFee() + this.tiffinFee());
-  totalInitial = computed(() => {
-    const v = this.paymentGroup.value;
-    const cabin = this.hasCabin() ? Number(v.cabinInitial || 0) : 0;
-    const pg    = this.hasPg()    ? Number(v.pgInitial    || 0) : 0;
-    const tiffin = this.hasTiffin() ? Number(v.tiffinInitial || 0) : 0;
-    return cabin + pg + tiffin;
-  });
+  // Plain methods (not computed) so the estimate strip and payment summary recompute
+  // live on every change-detection pass as staff type into the fee / "payment now"
+  // inputs — reactive-form values are not signals, so a computed() would stay stale.
+  cabinFee(): number  { return this.feeOf('cabin'); }
+  pgFee(): number     { return this.feeOf('pg'); }
+  tiffinFee(): number { return this.feeOf('tiffin'); }
+  totalMonthly(): number { return this.cabinFee() + this.pgFee() + this.tiffinFee(); }
+  totalInitial(): number {
+    return (this.hasCabin() ? this.paidNow('cabin') : 0)
+         + (this.hasPg() ? this.paidNow('pg') : 0)
+         + (this.hasTiffin() ? this.paidNow('tiffin') : 0);
+  }
 
   trackStep(_: number, s: StepDef) { return s.key; }
 
@@ -1243,6 +1244,15 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   /** Net signed balance across services: >0 due, <0 advance. */
   netBalance(): number {
     return this.totalMonthly() - this.totalInitial();
+  }
+  /**
+   * Opening account balance for the STUDENT — excludes tiffin, which tracks its own
+   * paid/balance on the tiffin subscription. >0 due, <0 advance.
+   */
+  accountOpeningBalance(): number {
+    const fee = this.cabinFee() + this.pgFee();
+    const paid = (this.hasCabin() ? this.paidNow('cabin') : 0) + (this.hasPg() ? this.paidNow('pg') : 0);
+    return Number((fee - paid).toFixed(2));
   }
   /** Quick "pay full" — set the service's initial payment to its monthly fee. */
   payFull(svc: 'cabin' | 'pg' | 'tiffin') {
@@ -1505,9 +1515,9 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       aadhaarBackUrl: docs.aadhaarBackUrl || undefined,
       voterIdUrl: docs.voterIdUrl || undefined,
       status: asDraft ? StudentStatus.PENDING : undefined,
-      // Signed opening balance: positive = part-payment shortfall (due),
-      // negative = advance/credit when more than the fees is collected.
-      outstandingBalance: asDraft ? undefined : (this.totalMonthly() - this.totalInitial()),
+      // Signed opening balance for the student account (cabin + PG only; tiffin keeps
+      // its own balance on the subscription). >0 due, <0 advance/credit.
+      outstandingBalance: asDraft ? undefined : this.accountOpeningBalance(),
     };
 
     this.api.create(studentPayload).pipe(
@@ -1578,6 +1588,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
           nextDueDate: t.dueDate || undefined,
           deliveryAssignee: t.deliveryAssignee || undefined,
           deliveryPhone: t.deliveryPhone || undefined,
+          initialPayment: this.paidNow('tiffin'),
         }).toPromise()
           .then(() => ({ kind: 'tiffin', ok: true }))
           .catch((e) => ({ kind: 'tiffin', ok: false, error: e?.error?.message ?? 'Could not create tiffin subscription' })),
