@@ -44,9 +44,9 @@ interface TodayResponse {
       <div class="navbar bg-base-100 border-b border-base-300 px-4">
         <div class="flex-1 font-semibold">{{ tenantName() }} · Check-In</div>
         <button class="btn btn-ghost btn-sm btn-circle" (click)="load()" title="Refresh">⟳</button>
-        <button class="btn btn-ghost btn-sm btn-circle" (click)="theme.toggle()" [title]="theme.theme() === 'dark' ? 'Light mode' : 'Dark mode'">
-          <span *ngIf="theme.theme() === 'dark'">☀</span>
-          <span *ngIf="theme.theme() === 'light'">☾</span>
+        <button class="btn btn-ghost btn-sm btn-circle" (click)="theme.toggle()" [title]="theme.isDark() ? 'Light mode' : 'Dark mode'">
+          <span *ngIf="theme.isDark()">☀</span>
+          <span *ngIf="!theme.isDark()">☾</span>
         </button>
         <button class="btn btn-ghost btn-sm" (click)="openChangePw()">🔑 Password</button>
         <button class="btn btn-ghost btn-sm" (click)="logout()">Sign out ⤴</button>

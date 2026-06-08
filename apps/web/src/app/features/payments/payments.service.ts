@@ -24,6 +24,7 @@ export interface CreatePaymentDto {
   method: PaymentMethod;
   notes?: string;
   nextDueDate?: string;
+  applyToAccount?: boolean;
 }
 
 export interface PaymentHistoryItem {
@@ -78,5 +79,9 @@ export class PaymentsApiService {
 
   deletePayment(id: string, reason: string) {
     return this.http.post<{ ok: boolean }>(`${this.base}/${id}/delete`, { reason });
+  }
+
+  emailReceipt(id: string) {
+    return this.http.post<{ ok: boolean }>(`${this.base}/${id}/email-receipt`, {});
   }
 }

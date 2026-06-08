@@ -11,8 +11,9 @@ import { PaymentsApiService } from '../payments/payments.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportColumn, exportCsv } from '../../shared/utils/export.util';
 import { AuthService } from '../../core/services/auth.service';
+import { ThemeService } from '../../core/services/theme.service';
 
-type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'about';
+type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'appearance' | 'about';
 
 @Component({
   selector: 'lms-settings',
@@ -486,6 +487,46 @@ type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'securi
       </form>
     </ng-container>
 
+    <!-- =========================== APPEARANCE =========================== -->
+    <ng-container *ngIf="section() === 'appearance'">
+      <div class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body p-5">
+          <div class="font-bold text-lg">Theme</div>
+          <p class="text-sm opacity-60 mb-4">
+            Choose a colour palette for the app. Your choice is saved on this device.
+          </p>
+
+          <!-- Dropdown selector -->
+          <label class="form-control max-w-xs mb-5">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Active theme</span></div>
+            <select class="select select-bordered" [ngModel]="theme.theme()" (ngModelChange)="theme.set($event)">
+              <option *ngFor="let t of theme.themes" [ngValue]="t.key">{{ t.label }} — {{ t.description }}</option>
+            </select>
+          </label>
+
+          <!-- Visual swatch tiles -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <button *ngFor="let t of theme.themes" type="button"
+                    (click)="theme.set(t.key)"
+                    class="relative text-left rounded-2xl border-2 p-3 transition-all hover:shadow-md"
+                    [class.border-primary]="theme.theme() === t.key"
+                    [class.border-base-300]="theme.theme() !== t.key">
+              <span *ngIf="theme.theme() === t.key"
+                    class="absolute top-2 right-2 badge badge-primary badge-sm">✓</span>
+              <div class="flex gap-1.5 mb-2">
+                <span class="w-6 h-6 rounded-lg" [style.background]="t.swatch[0]"></span>
+                <span class="w-6 h-6 rounded-lg" [style.background]="t.swatch[1]"></span>
+                <span class="w-6 h-6 rounded-lg" [style.background]="t.swatch[2]"></span>
+              </div>
+              <div class="font-semibold text-sm leading-tight">{{ t.label }}</div>
+              <div class="text-[11px] opacity-60 leading-tight mt-0.5">{{ t.description }}</div>
+              <div class="text-[10px] uppercase tracking-wider opacity-40 mt-1">{{ t.mode }}</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
     <!-- =========================== ABOUT =========================== -->
     <ng-container *ngIf="section() === 'about'">
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -520,6 +561,7 @@ export class SettingsComponent implements OnInit {
   private auth = inject(AuthService);
   private toast = inject(ToastService);
   private fb = inject(FormBuilder);
+  theme = inject(ThemeService);
 
   sections: { key: Section; label: string; icon: string }[] = [
     { key: 'profile',   label: 'Profile',         icon: '👤' },
@@ -528,6 +570,7 @@ export class SettingsComponent implements OnInit {
     { key: 'backup',    label: 'Backup & Storage',icon: '🗄' },
     { key: 'biometric', label: 'Biometric Device',icon: '🛡' },
     { key: 'security',  label: 'Security',        icon: '🔒' },
+    { key: 'appearance',label: 'Appearance',      icon: '🎨' },
     { key: 'about',     label: 'About',           icon: 'ⓘ' },
   ];
 

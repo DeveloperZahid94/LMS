@@ -1,6 +1,7 @@
 import {
-  IsEmail, IsEnum, IsISO8601, IsOptional, IsString, IsUUID, Length, Matches, MaxLength,
+  IsEmail, IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, MaxLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { Gender, StudentStatus } from '@lms/shared';
 
 export class CreateStudentDto {
@@ -97,4 +98,11 @@ export class CreateStudentDto {
   @IsOptional()
   @IsEnum(StudentStatus)
   status?: StudentStatus;
+
+  // Opening account balance from registration: positive = amount still due
+  // (part payment), negative = advance/credit (paid more than the fees).
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  outstandingBalance?: number;
 }

@@ -3,8 +3,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 import {
   CreateTenantDto,
+  EmailConfigDto,
   ResetPasswordDto,
   SetUserActiveDto,
+  TestEmailDto,
   TenantsAdminService,
 } from './tenants-admin.service';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -58,5 +60,21 @@ export class TenantsAdminController {
     @Body() dto: SetUserActiveDto,
   ) {
     return this.service.setUserActive(id, userId, dto.isActive);
+  }
+
+  // ----- Email integration -----
+  @Get(':id/email-config')
+  getEmailConfig(@Param('id') id: string) {
+    return this.service.getEmailConfig(id);
+  }
+
+  @Put(':id/email-config')
+  saveEmailConfig(@Param('id') id: string, @Body() dto: EmailConfigDto) {
+    return this.service.saveEmailConfig(id, dto);
+  }
+
+  @Post(':id/email-config/test')
+  testEmail(@Param('id') id: string, @Body() dto: TestEmailDto) {
+    return this.service.sendTestEmail(id, dto.to);
   }
 }

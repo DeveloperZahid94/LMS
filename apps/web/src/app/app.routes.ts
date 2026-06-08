@@ -65,6 +65,11 @@ export const routes: Routes = [
           import('./features/pg-rooms/pg-rooms.component').then((m) => m.PgRoomsComponent),
       },
       {
+        path: 'tiffin',
+        loadComponent: () =>
+          import('./features/tiffin/tiffin.component').then((m) => m.TiffinComponent),
+      },
+      {
         path: 'whatsapp',
         loadComponent: () =>
           import('./features/whatsapp/whatsapp.component').then((m) => m.WhatsappComponent),

@@ -52,7 +52,7 @@ export class AlertsService {
 
     const branchFilter = opts.branchId ? { seat: { branchId: opts.branchId } } : {};
 
-    const [overdueRows, dueSoonRows, expiringRows] = await Promise.all([
+    const [overdueRows, dueSoonRows, expiringRows, balanceRows] = await Promise.all([
       this.prisma.seatAssignment.findMany({
         where: {
           tenantId,
@@ -91,6 +91,15 @@ export class AlertsService {
           branchId: true, examTarget: true,
         },
         orderBy: { expiresAt: 'asc' },
+      }),
+      this.prisma.student.findMany({
+        where: {
+          tenantId,
+          outstandingBalance: { gt: 0 },
+          ...(opts.branchId ? { branchId: opts.branchId } : {}),
+        },
+        select: { id: true, code: true, fullName: true, phone: true, outstandingBalance: true },
+        orderBy: { outstandingBalance: 'desc' },
       }),
     ]);
 
@@ -136,6 +145,17 @@ export class AlertsService {
       };
     });
 
+    const balanceDue = balanceRows.map((s) => {
+      const amount = Number((s as any).outstandingBalance ?? 0);
+      return {
+        id: s.id,
+        kind: 'BALANCE' as const,
+        student: { id: s.id, code: s.code, fullName: s.fullName, phone: s.phone },
+        amount,
+        summary: `${s.fullName} (${s.code}) — ₹${amount.toLocaleString('en-IN')} balance due`,
+      };
+    });
+
     // Optional text search across summaries.
     const q = opts.search?.trim().toLowerCase();
     const filt = <T extends { summary: string }>(arr: T[]) =>
@@ -145,11 +165,13 @@ export class AlertsService {
       overdue:      filt(overdue),
       dueSoon:      filt(dueSoon),
       expiringSoon: filt(expiringSoon),
+      balanceDue:   filt(balanceDue),
       counts: {
         overdue: overdue.length,
         dueSoon: dueSoon.length,
         expiringSoon: expiringSoon.length,
-        total: overdue.length + dueSoon.length + expiringSoon.length,
+        balanceDue: balanceDue.length,
+        total: overdue.length + dueSoon.length + expiringSoon.length + balanceDue.length,
       },
     };
   }

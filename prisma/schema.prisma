@@ -40,10 +40,29 @@ model Tenant {
   auditLogs    AuditLog[]
   pgRooms      PgRoom[]
   pgRoomAssignments PgRoomAssignment[]
+  tiffinSubscriptions TiffinSubscription[]
   setting      TenantSetting?
+  emailConfig  EmailConfig?
 
   @@index([status])
   @@map("tenants")
+}
+
+// Per-tenant email integration, configured by SuperAdmin.
+model EmailConfig {
+  id             String   @id @default(uuid())
+  tenantId       String   @unique
+  provider       String   @default("NONE") // NONE | BREVO | SENDGRID
+  brevoApiKey    String?
+  sendgridApiKey String?
+  fromEmail      String?
+  fromName       String?
+  enabled        Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("email_configs")
 }
 
 enum TenantStatus {
@@ -91,6 +110,7 @@ model Branch {
   attendance  Attendance[]
   payments    Payment[]
   pgRooms     PgRoom[]
+  tiffinSubscriptions TiffinSubscription[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -168,6 +188,7 @@ model Student {
 
   joinedAt           DateTime @default(now())   // registration date
   expiresAt          DateTime?                  // membership/plan expiry
+  outstandingBalance Decimal  @default(0) @db.Decimal(10, 2) // unpaid balance from part payments
 
   qrCode             String   @unique @default(uuid()) // scanned for attendance
   createdAt          DateTime @default(now())
@@ -180,6 +201,7 @@ model Student {
   payments      Payment[]
   planEnrollments StudentPlanEnrollment[]
   pgRoomAssignments PgRoomAssignment[]
+  tiffinSubscriptions TiffinSubscription[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, phone])
@@ -484,6 +506,75 @@ enum PgAssignmentStatus {
 }
 
 // ============================================================
+// TIFFIN (meal subscription add-on — standalone or alongside cabin/PG)
+// ============================================================
+
+model TiffinSubscription {
+  id              String   @id @default(uuid())
+  tenantId        String
+  branchId        String
+  studentId       String
+  mealType        TiffinMealType @default(VEG)
+  mealPlan        TiffinMealPlan @default(BOTH)
+  monthlyRate     Decimal  @db.Decimal(10, 2)
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+  nextDueDate     DateTime?                   // mirrors seat/PG due-date pattern for alerts
+  status          TiffinStatus @default(ACTIVE)
+  // Delivery person (free-text — delivery boys aren't app users)
+  deliveryAssignee String?
+  deliveryPhone    String?
+  pausedDays      Int      @default(0)        // cumulative days paused (drives due-date extension)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  pauses      TiffinPause[]
+
+  @@index([tenantId, studentId, status])
+  @@index([tenantId, nextDueDate])
+  @@index([tenantId, branchId])
+  @@map("tiffin_subscriptions")
+}
+
+// One row per pause period — open (resumedAt = null) means currently paused.
+model TiffinPause {
+  id             String   @id @default(uuid())
+  tenantId       String
+  subscriptionId String
+  pausedAt       DateTime
+  resumedAt      DateTime?
+  days           Int?                          // computed on resume
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  subscription   TiffinSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, subscriptionId])
+  @@map("tiffin_pauses")
+}
+
+enum TiffinMealType {
+  VEG
+  NONVEG
+}
+
+enum TiffinMealPlan {
+  LUNCH
+  DINNER
+  BOTH
+}
+
+enum TiffinStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+// ============================================================
 // TENANT SETTINGS (per-tenant JSON blob: SMS, biometric, security, backup, etc.)
 // ============================================================
 
@@ -527,6 +618,7 @@ enum FeatureKey {
   PAYMENT_GATEWAY
   EXPORTS
   PG_ROOMS
+  TIFFIN
   DASHBOARD
   STUDENTS
   SEATS

@@ -1,10 +1,24 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { EmailService } from '../email/email.service';
 import { FeatureKey } from '@lms/shared';
 import { DEFAULT_EXAM_TARGETS } from '../exam-targets/exam-targets.service';
 import * as bcrypt from 'bcryptjs';
-import { IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+
+export class EmailConfigDto {
+  @IsIn(['NONE', 'BREVO', 'SENDGRID']) provider!: string;
+  @IsOptional() @IsString() brevoApiKey?: string;
+  @IsOptional() @IsString() sendgridApiKey?: string;
+  @IsOptional() @IsString() fromEmail?: string;
+  @IsOptional() @IsString() fromName?: string;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+}
+
+export class TestEmailDto {
+  @IsEmail() to!: string;
+}
 
 export class CreateTenantDto {
   @IsString() name!: string;
@@ -37,7 +51,55 @@ export class TenantsAdminService {
   constructor(
     private prisma: PrismaService,
     private featureFlags: FeatureFlagsService,
+    private email: EmailService,
   ) {}
+
+  // ----- Email integration (SuperAdmin) -----
+  async getEmailConfig(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    const cfg = await this.email.getConfig(tenantId);
+    return {
+      provider: cfg?.provider ?? 'NONE',
+      fromEmail: cfg?.fromEmail ?? '',
+      fromName: cfg?.fromName ?? tenant.name,
+      enabled: cfg?.enabled ?? false,
+      brevoKeySet: !!cfg?.brevoApiKey,
+      sendgridKeySet: !!cfg?.sendgridApiKey,
+    };
+  }
+
+  async saveEmailConfig(tenantId: string, dto: EmailConfigDto) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    const data: any = {
+      provider: dto.provider,
+      fromEmail: dto.fromEmail ?? null,
+      fromName: dto.fromName ?? null,
+      enabled: dto.enabled ?? false,
+    };
+    // Only overwrite a key when a new non-empty value is provided (UI sends blanks to keep existing).
+    if (dto.brevoApiKey?.trim()) data.brevoApiKey = dto.brevoApiKey.trim();
+    if (dto.sendgridApiKey?.trim()) data.sendgridApiKey = dto.sendgridApiKey.trim();
+    await this.prisma.emailConfig.upsert({
+      where: { tenantId },
+      create: { tenantId, ...data },
+      update: data,
+    });
+    return this.getEmailConfig(tenantId);
+  }
+
+  async sendTestEmail(tenantId: string, to: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    const cfg = await this.email.getConfig(tenantId);
+    const res = await this.email.sendTemplate({
+      tenantId, to, template: 'TEST',
+      data: { orgName: tenant.name, provider: cfg?.provider, now: new Date().toLocaleString('en-IN') },
+    });
+    if (!res.ok) throw new BadRequestException(res.error || res.skipped ? 'Email is not enabled — set a provider, key and turn it on first.' : 'Email send failed');
+    return { ok: true, provider: res.provider };
+  }
 
   list() {
     return this.prisma.tenant.findMany({

@@ -50,6 +50,7 @@ export interface Student {
 
   joinedAt: string;
   expiresAt: string | null;
+  outstandingBalance: number;
 
   qrCode: string;
   createdAt: string;
@@ -83,6 +84,7 @@ export interface CreateStudentDto {
   voterIdUrl?: string;
 
   expiresAt?: string;
+  outstandingBalance?: number;
 }
 
 export interface UpdateStudentDto extends Partial<CreateStudentDto> {

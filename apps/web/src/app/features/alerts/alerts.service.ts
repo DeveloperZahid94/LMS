@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 
-export type AlertKind = 'OVERDUE' | 'DUE_SOON' | 'EXPIRING';
+export type AlertKind = 'OVERDUE' | 'DUE_SOON' | 'EXPIRING' | 'BALANCE';
 
 interface StudentRef { id: string; code: string; fullName: string; phone: string; }
 interface SeatRef    { id: string; code: string; type: string; branchId: string; }
@@ -38,11 +38,20 @@ export interface ExpiringAlert {
   summary: string;
 }
 
+export interface BalanceAlert {
+  id: string;
+  kind: 'BALANCE';
+  student: StudentRef;
+  amount: number;
+  summary: string;
+}
+
 export interface AlertsResponse {
   overdue: OverdueAlert[];
   dueSoon: DueSoonAlert[];
   expiringSoon: ExpiringAlert[];
-  counts: { overdue: number; dueSoon: number; expiringSoon: number; total: number };
+  balanceDue: BalanceAlert[];
+  counts: { overdue: number; dueSoon: number; expiringSoon: number; balanceDue: number; total: number };
 }
 
 @Injectable({ providedIn: 'root' })

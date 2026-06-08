@@ -7,6 +7,7 @@ export enum FeatureKey {
   PAYMENT_GATEWAY = 'PAYMENT_GATEWAY',
   EXPORTS = 'EXPORTS',
   PG_ROOMS = 'PG_ROOMS',
+  TIFFIN = 'TIFFIN',
   // Menu-visibility flags (let SuperAdmin show/hide core sidebar items per tenant).
   DASHBOARD = 'DASHBOARD',
   STUDENTS = 'STUDENTS',
@@ -30,6 +31,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   [FeatureKey.PAYMENT_GATEWAY]: 'Payment Gateway',
   [FeatureKey.EXPORTS]: 'Data Exports',
   [FeatureKey.PG_ROOMS]: 'PG Rooms',
+  [FeatureKey.TIFFIN]: 'Tiffin Service',
   [FeatureKey.DASHBOARD]: 'Dashboard',
   [FeatureKey.STUDENTS]: 'Students',
   [FeatureKey.SEATS]: 'Seats',

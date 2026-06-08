@@ -7,6 +7,7 @@ import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { ListStudentsDto } from './dto/list-students.dto';
+import { SettleBalanceDto } from './dto/settle-balance.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@lms/shared';
 
@@ -49,5 +50,11 @@ export class StudentsController {
   @Post(':id/reset-password')
   resetPassword(@Param('id') id: string, @Body() dto: { newPassword?: string }) {
     return this.service.resetPassword(id, dto?.newPassword);
+  }
+
+  @Roles(UserRole.STAFF)
+  @Post(':id/settle-balance')
+  settleBalance(@Param('id') id: string, @Body() dto: SettleBalanceDto) {
+    return this.service.settleBalance(id, dto);
   }
 }

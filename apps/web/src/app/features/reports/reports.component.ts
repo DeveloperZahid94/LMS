@@ -26,19 +26,32 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
   imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <!-- ================================ HEADER ================================ -->
-    <div class="flex items-end justify-between mb-3 flex-wrap gap-2">
+    <div class="flex items-start justify-between mb-5 flex-wrap gap-3">
       <div>
-        <h1 class="text-2xl font-bold">Reports</h1>
-        <p class="text-sm opacity-60">
+        <h1 class="text-2xl font-bold tracking-tight">Reports</h1>
+        <p class="text-sm opacity-60 mt-0.5">
           Collections, outstanding fees, and student-level payment status.
         </p>
       </div>
-      <div class="flex items-center gap-2 text-sm">
-        <a routerLink="/reports/attendance" class="btn btn-sm btn-outline">📋 Attendance report</a>
-        <span class="opacity-60 text-xs" *ngIf="lastRefreshed()">
-          Updated {{ lastRefreshed() | date:'mediumTime' }}
+      <div class="flex items-center gap-2">
+        <span class="text-xs opacity-50 hidden sm:inline" *ngIf="lastRefreshed()">
+          Updated {{ lastRefreshed() | date:'shortTime' }}
         </span>
-        <button class="btn btn-sm btn-ghost" (click)="reload()" [disabled]="loading()" title="Refresh">
+        <a routerLink="/reports/attendance" class="btn btn-sm btn-ghost gap-1.5">
+          <span>📋</span> Attendance
+        </a>
+        <div class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="btn btn-sm btn-outline gap-1.5"
+               [class.btn-disabled]="loading()">
+            <span>⤓</span> Export
+            <span class="opacity-50 text-xs hidden md:inline">· {{ tabLabel() }}</span>
+          </div>
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow-lg z-20 mt-2 w-40 p-2 border border-base-200">
+            <li><a (click)="doExport('csv')">📄 CSV</a></li>
+            <li><a (click)="doExport('pdf')">🖨 PDF</a></li>
+          </ul>
+        </div>
+        <button class="btn btn-sm btn-primary gap-1.5" (click)="reload()" [disabled]="loading()" title="Refresh">
           <span *ngIf="loading()" class="loading loading-spinner loading-xs"></span>
           <span *ngIf="!loading()">↻</span>
           Refresh
@@ -47,149 +60,142 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
     </div>
 
     <!-- ================================ FILTERS ================================ -->
-    <div class="card bg-base-100 border border-base-300 mb-4">
-      <div class="card-body p-4 space-y-3">
-        <!-- Preset chips -->
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs uppercase tracking-wider opacity-60 font-semibold w-20">Quick range</span>
+    <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl mb-5">
+      <div class="card-body p-3 sm:p-4">
+        <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <!-- Quick range presets -->
           <div class="join">
             <button class="join-item btn btn-sm" *ngFor="let p of presetList"
                     [class.btn-primary]="preset() === p.key"
                     (click)="setPreset(p.key)">{{ p.label }}</button>
           </div>
-        </div>
 
-        <!-- Always-visible date pickers + branch + bucket -->
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs uppercase tracking-wider opacity-60 font-semibold w-20">Dates</span>
-          <div class="join">
-            <span class="join-item btn btn-sm btn-ghost no-animation pointer-events-none opacity-70">From</span>
-            <input type="date" class="join-item input input-bordered input-sm"
+          <div class="divider divider-horizontal mx-0 hidden lg:flex"></div>
+
+          <!-- Date range -->
+          <label class="input input-bordered input-sm flex items-center gap-2 pr-1">
+            <span class="opacity-50 text-xs font-medium">From</span>
+            <input type="date" class="grow bg-transparent min-w-0"
                    [(ngModel)]="dateFrom" (ngModelChange)="onDateChange()" [max]="dateTo || null" />
-            <span class="join-item btn btn-sm btn-ghost no-animation pointer-events-none opacity-70">To</span>
-            <input type="date" class="join-item input input-bordered input-sm"
+          </label>
+          <label class="input input-bordered input-sm flex items-center gap-2 pr-1">
+            <span class="opacity-50 text-xs font-medium">To</span>
+            <input type="date" class="grow bg-transparent min-w-0"
                    [(ngModel)]="dateTo" (ngModelChange)="onDateChange()" [min]="dateFrom || null" />
-          </div>
+          </label>
+
+          <!-- Branch -->
           <select class="select select-bordered select-sm" [(ngModel)]="branchFilter" (ngModelChange)="reload()">
             <option [ngValue]="undefined">All branches</option>
             <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }}</option>
           </select>
-          <span class="ml-auto text-xs opacity-60">Bucket:</span>
-          <div class="join">
-            <button class="join-item btn btn-sm" *ngFor="let b of bucketList"
-                    [class.btn-primary]="bucket() === b"
-                    (click)="setBucket(b)">{{ b | titlecase }}</button>
+
+          <!-- Grouping (pushed right) -->
+          <div class="ml-auto flex items-center gap-2">
+            <span class="text-xs uppercase tracking-wider opacity-50 font-semibold hidden sm:inline">Group by</span>
+            <div class="join">
+              <button class="join-item btn btn-sm" *ngFor="let b of bucketList"
+                      [class.btn-primary]="bucket() === b"
+                      (click)="setBucket(b)">{{ b | titlecase }}</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- ================================ KPI TILES with deltas ================================ -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" *ngIf="summary() as s">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5" *ngIf="summary() as s">
       <!-- COLLECTED -->
-      <div class="card bg-base-100 border border-base-300 hover:shadow-md transition-shadow">
-        <div class="card-body p-4">
-          <div class="flex items-start justify-between">
-            <div class="text-xs uppercase tracking-wider opacity-60">Collected</div>
-            <span class="badge badge-sm" *ngIf="s.comparison.collectedDeltaPct !== null"
+      <div class="relative card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+        <span class="absolute inset-y-0 left-0 w-1 bg-success"></span>
+        <div class="card-body p-4 sm:p-5">
+          <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-xl bg-success bg-opacity-10 text-success grid place-items-center text-base font-bold shrink-0">₹</div>
+            <span class="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Collected</span>
+            <span class="ml-auto badge badge-sm gap-0.5" *ngIf="s.comparison.collectedDeltaPct !== null"
                   [class.badge-success]="(s.comparison.collectedDeltaPct ?? 0) >= 0"
                   [class.badge-error]="(s.comparison.collectedDeltaPct ?? 0) < 0">
-              <span>{{ (s.comparison.collectedDeltaPct ?? 0) >= 0 ? '▲' : '▼' }}</span>
+              {{ (s.comparison.collectedDeltaPct ?? 0) >= 0 ? '▲' : '▼' }}
               {{ absPct(s.comparison.collectedDeltaPct) | number:'1.1-1' }}%
             </span>
-            <span class="badge badge-sm badge-ghost" *ngIf="s.comparison.collectedDeltaPct === null">new</span>
+            <span class="ml-auto badge badge-sm badge-ghost" *ngIf="s.comparison.collectedDeltaPct === null">new</span>
           </div>
-          <div class="text-2xl font-bold text-success mt-1">₹{{ s.kpis.totalCollected | number }}</div>
-          <div class="text-xs opacity-60 mt-1">
-            vs ₹{{ s.comparison.previousCollected | number }} prior period
-          </div>
+          <div class="text-2xl sm:text-3xl font-bold text-success mt-2 leading-none">₹{{ s.kpis.totalCollected | number }}</div>
+          <div class="text-xs opacity-50 mt-1.5">vs ₹{{ s.comparison.previousCollected | number }} prior period</div>
         </div>
       </div>
 
       <!-- EXPECTED -->
-      <div class="card bg-base-100 border border-base-300 hover:shadow-md transition-shadow">
-        <div class="card-body p-4">
-          <div class="flex items-start justify-between">
-            <div class="text-xs uppercase tracking-wider opacity-60">Expected</div>
-            <div class="tooltip tooltip-left" data-tip="Monthly billing baseline — SUM(monthlyRate) across active seat allocations">
+      <div class="relative card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+        <span class="absolute inset-y-0 left-0 w-1 bg-primary"></span>
+        <div class="card-body p-4 sm:p-5">
+          <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-xl bg-primary bg-opacity-10 text-primary grid place-items-center text-base shrink-0">◎</div>
+            <span class="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Expected</span>
+            <div class="ml-auto tooltip tooltip-left" data-tip="Monthly billing baseline — SUM(monthlyRate) across active seat allocations">
               <span class="opacity-40 text-xs cursor-help">ⓘ</span>
             </div>
           </div>
-          <div class="text-2xl font-bold mt-1">₹{{ s.kpis.totalExpected | number }}</div>
-          <div class="text-xs opacity-60 mt-1">{{ s.kpis.studentCount }} active student{{ s.kpis.studentCount === 1 ? '' : 's' }}</div>
+          <div class="text-2xl sm:text-3xl font-bold mt-2 leading-none">₹{{ s.kpis.totalExpected | number }}</div>
+          <div class="text-xs opacity-50 mt-1.5">{{ s.kpis.studentCount }} active student{{ s.kpis.studentCount === 1 ? '' : 's' }}</div>
         </div>
       </div>
 
       <!-- OUTSTANDING -->
-      <div class="card bg-base-100 border border-base-300 hover:shadow-md transition-shadow cursor-pointer"
+      <div class="relative card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden hover:shadow-md transition-shadow cursor-pointer group"
            (click)="jumpToStudents('UNPAID')">
-        <div class="card-body p-4">
-          <div class="flex items-start justify-between">
-            <div class="text-xs uppercase tracking-wider opacity-60">Outstanding</div>
-            <span class="text-xs opacity-50">drill ↗</span>
+        <span class="absolute inset-y-0 left-0 w-1 bg-error"></span>
+        <div class="card-body p-4 sm:p-5">
+          <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-xl bg-error bg-opacity-10 text-error grid place-items-center text-base shrink-0">⚠</div>
+            <span class="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Outstanding</span>
+            <span class="ml-auto text-xs opacity-40 group-hover:opacity-80 transition-opacity">drill ↗</span>
           </div>
-          <div class="text-2xl font-bold text-error mt-1">₹{{ s.kpis.outstanding | number }}</div>
-          <div class="text-xs opacity-60 mt-1">
-            {{ s.kpis.unpaidCount }} unpaid · {{ s.kpis.partialCount }} partial
-          </div>
+          <div class="text-2xl sm:text-3xl font-bold text-error mt-2 leading-none">₹{{ s.kpis.outstanding | number }}</div>
+          <div class="text-xs opacity-50 mt-1.5">{{ s.kpis.unpaidCount }} unpaid · {{ s.kpis.partialCount }} partial</div>
         </div>
       </div>
 
       <!-- COVERAGE -->
-      <div class="card bg-base-100 border border-base-300 hover:shadow-md transition-shadow">
-        <div class="card-body p-4">
-          <div class="text-xs uppercase tracking-wider opacity-60">Coverage</div>
-          <div class="text-2xl font-bold mt-1"
-               [class.text-success]="s.kpis.coveragePct >= 90"
-               [class.text-warning]="s.kpis.coveragePct >= 60 && s.kpis.coveragePct < 90"
-               [class.text-error]="s.kpis.coveragePct < 60">
-            {{ s.kpis.coveragePct | number:'1.1-1' }}%
+      <div class="relative card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+        <span class="absolute inset-y-0 left-0 w-1"
+              [class.bg-success]="s.kpis.coveragePct >= 90"
+              [class.bg-warning]="s.kpis.coveragePct >= 60 && s.kpis.coveragePct < 90"
+              [class.bg-error]="s.kpis.coveragePct < 60"></span>
+        <div class="card-body p-4 sm:p-5">
+          <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-xl bg-info bg-opacity-10 text-info grid place-items-center text-base shrink-0">◷</div>
+            <span class="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Coverage</span>
+            <span class="ml-auto text-lg font-bold leading-none"
+                  [class.text-success]="s.kpis.coveragePct >= 90"
+                  [class.text-warning]="s.kpis.coveragePct >= 60 && s.kpis.coveragePct < 90"
+                  [class.text-error]="s.kpis.coveragePct < 60">
+              {{ s.kpis.coveragePct | number:'1.1-1' }}%
+            </span>
           </div>
-          <progress class="progress w-full mt-1"
+          <progress class="progress w-full mt-3"
                     [class.progress-success]="s.kpis.coveragePct >= 90"
                     [class.progress-warning]="s.kpis.coveragePct >= 60 && s.kpis.coveragePct < 90"
                     [class.progress-error]="s.kpis.coveragePct < 60"
                     [value]="s.kpis.coveragePct" max="100"></progress>
+          <div class="text-xs opacity-50 mt-1.5">{{ s.kpis.paidCount }} fully paid of {{ s.kpis.studentCount }}</div>
         </div>
       </div>
     </div>
 
-    <!-- Clickable status chips → jump to student tab filtered -->
-    <div class="flex items-center gap-2 mb-4 flex-wrap" *ngIf="summary() as s">
-      <span class="text-xs opacity-60 uppercase tracking-wider font-semibold">Status:</span>
-      <button class="badge badge-success badge-lg gap-2 cursor-pointer hover:scale-105 transition-transform"
-              (click)="jumpToStudents('PAID')">
-        ✓ PAID <span class="badge badge-sm bg-success-content text-success">{{ s.kpis.paidCount }}</span>
-      </button>
-      <button class="badge badge-warning badge-lg gap-2 cursor-pointer hover:scale-105 transition-transform"
-              (click)="jumpToStudents('PARTIAL')">
-        ◐ PARTIAL <span class="badge badge-sm bg-warning-content text-warning">{{ s.kpis.partialCount }}</span>
-      </button>
-      <button class="badge badge-error badge-lg gap-2 cursor-pointer hover:scale-105 transition-transform"
-              (click)="jumpToStudents('UNPAID')">
-        ✕ UNPAID <span class="badge badge-sm bg-error-content text-error">{{ s.kpis.unpaidCount }}</span>
-      </button>
-
-      <div class="ml-auto flex items-center gap-2">
-        <span class="text-xs opacity-60">Export {{ tabLabel() }}:</span>
-        <button class="btn btn-sm btn-outline" (click)="doExport('csv')" [disabled]="loading()">📄 CSV</button>
-        <button class="btn btn-sm btn-outline" (click)="doExport('pdf')" [disabled]="loading()">🖨 PDF</button>
-      </div>
-    </div>
-
     <!-- ================================ TABS ================================ -->
-    <div role="tablist" class="tabs tabs-bordered mb-3">
-      <a role="tab" class="tab gap-2" [class.tab-active]="tab() === 'overview'" (click)="tab.set('overview')">
+    <div role="tablist" class="tabs tabs-boxed bg-base-200 p-1 rounded-xl mb-4 inline-flex flex-wrap">
+      <a role="tab" class="tab gap-1.5" [class.tab-active]="tab() === 'overview'" (click)="tab.set('overview')">
         <span>📊</span> Overview
       </a>
-      <a role="tab" class="tab gap-2" [class.tab-active]="tab() === 'period'"   (click)="tab.set('period')">
+      <a role="tab" class="tab gap-1.5" [class.tab-active]="tab() === 'period'"   (click)="tab.set('period')">
         <span>📅</span> By Period
       </a>
-      <a role="tab" class="tab gap-2" [class.tab-active]="tab() === 'student'"  (click)="tab.set('student')">
+      <a role="tab" class="tab gap-1.5" [class.tab-active]="tab() === 'student'"  (click)="tab.set('student')">
         <span>👤</span> By Student
         <span *ngIf="studentStatus() !== 'ALL'" class="badge badge-xs badge-primary">{{ studentStatus() }}</span>
       </a>
-      <a role="tab" class="tab gap-2" [class.tab-active]="tab() === 'method'"   (click)="tab.set('method')">
+      <a role="tab" class="tab gap-1.5" [class.tab-active]="tab() === 'method'"   (click)="tab.set('method')">
         <span>💳</span> By Method
       </a>
     </div>
@@ -198,7 +204,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
     <ng-container *ngIf="tab() === 'overview'">
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3">
         <!-- Collections chart (spans 2 cols) -->
-        <div class="card bg-base-100 border border-base-300 lg:col-span-2">
+        <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl lg:col-span-2">
           <div class="card-body p-4">
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div>
@@ -235,7 +241,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
         </div>
 
         <!-- Aging buckets -->
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl">
           <div class="card-body p-4">
             <div class="flex items-center justify-between mb-2">
               <div>
@@ -275,7 +281,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
       <!-- Top performers + Method breakdown -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-3" *ngIf="summary() as s">
         <!-- Top payers -->
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl">
           <div class="card-body p-4">
             <div class="font-semibold mb-2 flex items-center gap-2">🏆 Top payers</div>
             <div *ngIf="s.topPayers.length === 0" class="text-xs opacity-60 py-4 text-center">No payments yet.</div>
@@ -297,7 +303,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
         </div>
 
         <!-- Top outstanding -->
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl">
           <div class="card-body p-4">
             <div class="font-semibold mb-2 flex items-center gap-2">⚠ Top outstanding</div>
             <div *ngIf="s.topOutstanding.length === 0" class="text-xs opacity-60 py-4 text-center">No outstanding balances.</div>
@@ -317,7 +323,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
         </div>
 
         <!-- Method breakdown -->
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl">
           <div class="card-body p-4">
             <div class="font-semibold mb-2 flex items-center gap-2">💳 By method</div>
             <div *ngIf="methods().length === 0" class="text-xs opacity-60 py-4 text-center">No collections in this range.</div>
@@ -339,7 +345,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 
     <!-- ================================ BY PERIOD ================================ -->
     <ng-container *ngIf="tab() === 'period'">
-      <div class="card bg-base-100 border border-base-300 overflow-hidden">
+      <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="table table-zebra table-pin-rows">
             <thead>
@@ -399,7 +405,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
                [(ngModel)]="studentSearch" placeholder="Search name, code, or phone…" />
       </div>
 
-      <div class="card bg-base-100 border border-base-300 overflow-hidden">
+      <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="table table-zebra table-pin-rows">
             <thead>
@@ -471,7 +477,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 
     <!-- ================================ BY METHOD ================================ -->
     <ng-container *ngIf="tab() === 'method'">
-      <div class="card bg-base-100 border border-base-300 overflow-hidden">
+      <div class="card bg-base-100 border border-base-200 shadow-sm rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="table table-zebra">
             <thead>

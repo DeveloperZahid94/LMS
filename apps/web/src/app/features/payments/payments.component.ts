@@ -28,9 +28,10 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
 @Component({
   selector: 'lms-payments',
   standalone: true,
+  host: { class: 'flex flex-col h-[calc(100dvh-5.75rem)] min-h-0 overflow-hidden' },
   imports: [CommonModule, FormsModule, ReactiveFormsModule, SearchableSelectComponent, ExportToolbarComponent],
   template: `
-    <div class="flex items-end justify-between mb-4 flex-wrap gap-2">
+    <div class="flex items-end justify-between mb-4 flex-wrap gap-2 shrink-0">
       <div>
         <h1 class="text-2xl font-bold">Payments</h1>
         <p class="text-sm opacity-60">
@@ -42,7 +43,7 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
     </div>
 
     <!-- Filter / search / sort bar -->
-    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3">
+    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3 shrink-0">
       <div class="p-2 flex flex-row flex-wrap items-center gap-2">
         <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[220px]">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -67,10 +68,10 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
       </div>
     </div>
 
-    <div class="card bg-base-100 border border-base-300 overflow-hidden">
-      <div class="overflow-x-auto">
+    <div class="card bg-base-100 border border-base-300 overflow-hidden flex flex-col flex-1 min-h-0">
+      <div class="overflow-auto flex-1 min-h-0">
         <table class="table table-zebra">
-          <thead>
+          <thead class="sticky top-0 z-10 bg-base-100">
             <tr>
               <th>Date</th>
               <th>Receipt #</th>
@@ -135,7 +136,7 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
     </div>
 
     <!-- Pagination -->
-    <div class="flex items-center justify-between mt-4 text-sm flex-wrap gap-2" *ngIf="total() > 0">
+    <div class="flex items-center justify-between pt-3 text-sm flex-wrap gap-2 shrink-0" *ngIf="total() > 0">
       <div class="opacity-60">
         Showing {{ (page() - 1) * limit + 1 }}–{{ rangeEnd() }} of {{ total() }}
       </div>
@@ -176,6 +177,23 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
               </select>
             </label>
           </div>
+
+          <!-- Carried account balance (due / advance) for the selected student -->
+          <div *ngIf="selectedBalance() !== 0" class="text-xs rounded-lg p-2"
+               [ngClass]="selectedBalance() > 0 ? 'bg-error bg-opacity-10' : 'bg-success bg-opacity-10'">
+            <div class="flex items-center justify-between">
+              <span *ngIf="selectedBalance() > 0">Outstanding balance carried: <strong class="text-error">₹{{ selectedBalance() | number }}</strong></span>
+              <span *ngIf="selectedBalance() < 0">Advance / credit on account: <strong class="text-success">₹{{ -selectedBalance() | number }}</strong></span>
+            </div>
+            <label class="flex items-center gap-2 mt-1 cursor-pointer">
+              <input type="checkbox" class="checkbox checkbox-xs" formControlName="applyToAccount" />
+              <span>Apply this payment to the account balance (settle due / add advance)</span>
+            </label>
+          </div>
+          <label *ngIf="selectedBalance() === 0" class="flex items-center gap-2 text-xs cursor-pointer">
+            <input type="checkbox" class="checkbox checkbox-xs" formControlName="applyToAccount" />
+            <span>Record as advance / account credit</span>
+          </label>
 
           <!-- Live balance for the selected student -->
           <div *ngIf="selectedSummary() as ss" class="text-xs rounded-lg bg-base-200 p-2 flex flex-wrap gap-x-4 gap-y-1">
@@ -375,6 +393,8 @@ export class PaymentsComponent implements OnInit {
 
   // Live balance for the student selected in the Record modal
   selectedSummary = signal<PaymentSummary | null>(null);
+  // Outstanding (carried) balance for the selected student, from part payments.
+  selectedBalance = signal<number>(0);
 
   dateFrom = '';
   dateTo = '';
@@ -399,6 +419,7 @@ export class PaymentsComponent implements OnInit {
     method: [PaymentMethod.CASH, Validators.required],
     notes: [''],
     nextDueDate: [''],
+    applyToAccount: [false],
   });
 
   studentItems = computed<ComboItem[]>(() =>
@@ -418,6 +439,8 @@ export class PaymentsComponent implements OnInit {
     // Load the selected student's fee/paid summary so the modal can show a live balance.
     this.form.controls.studentId.valueChanges.subscribe((id) => {
       this.selectedSummary.set(null);
+      const stu = this.students().find((s) => s.id === id);
+      this.selectedBalance.set(stu ? Number((stu as any).outstandingBalance ?? 0) : 0);
       if (id) this.api.studentSummary(id).subscribe({ next: (s) => this.selectedSummary.set(s), error: () => undefined });
     });
   }
@@ -552,15 +575,17 @@ export class PaymentsComponent implements OnInit {
 
   sendVia(p: PaymentRow, channel: 'email' | 'sms' | 'whatsapp') {
     (document.activeElement as HTMLElement | null)?.blur();
-    const labels: Record<typeof channel, string> = {
-      email: 'Email',
-      sms: 'SMS',
-      whatsapp: 'WhatsApp',
-    } as const;
-    const target =
-      channel === 'email' ? (p.student.email || 'no email on file') :
-      p.student.phone || 'no phone on file';
-    this.toast.info(`${labels[channel]} delivery to ${target} — integration coming soon.`);
+    if (channel === 'email') {
+      if (!p.student.email) { this.toast.error('This student has no email on file'); return; }
+      this.toast.info(`Emailing receipt to ${p.student.email}…`);
+      this.api.emailReceipt(p.id).subscribe({
+        next: () => this.toast.success(`Receipt emailed to ${p.student.email}`),
+        error: (err) => this.toast.error(err.error?.message ?? 'Could not send email'),
+      });
+      return;
+    }
+    const target = p.student.phone || 'no phone on file';
+    this.toast.info(`${channel === 'sms' ? 'SMS' : 'WhatsApp'} delivery to ${target} — integration coming soon.`);
   }
 
   private buildExport(rows: PaymentRow[], kind: 'csv' | 'pdf') {
@@ -597,7 +622,9 @@ export class PaymentsComponent implements OnInit {
       method: PaymentMethod.CASH,
       notes: '',
       nextDueDate: nextMonth.toISOString().slice(0, 10),
+      applyToAccount: false,
     });
+    this.selectedBalance.set(0);
     this.modalOpen.set(true);
   }
   closeModal() {
@@ -616,6 +643,7 @@ export class PaymentsComponent implements OnInit {
       method: v.method!,
       notes: v.notes || undefined,
       nextDueDate: v.nextDueDate || undefined,
+      applyToAccount: v.applyToAccount || undefined,
     }).subscribe({
       next: (p) => {
         this.toast.success(`Recorded ₹${p.amount} from ${p.student.fullName}`);

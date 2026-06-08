@@ -3,20 +3,21 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { debounceTime, Subject } from 'rxjs';
 import { RouterLink } from '@angular/router';
-import { AlertsApiService, AlertsResponse, DueSoonAlert, ExpiringAlert, OverdueAlert } from './alerts.service';
+import { AlertsApiService, AlertsResponse, BalanceAlert, DueSoonAlert, ExpiringAlert, OverdueAlert } from './alerts.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportToolbarComponent } from '../../shared/components/export-toolbar.component';
 import { ExportColumn, exportCsv, exportPdf, fmtDate } from '../../shared/utils/export.util';
 
-type TabKey = 'overdue' | 'dueSoon' | 'expiring';
+type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
 
 @Component({
   selector: 'lms-alerts',
   standalone: true,
+  host: { class: 'flex flex-col h-[calc(100dvh-5.75rem)] min-h-0 overflow-hidden' },
   imports: [CommonModule, FormsModule, RouterLink, ExportToolbarComponent],
   template: `
-    <div class="mb-4 flex items-end justify-between flex-wrap gap-2">
+    <div class="mb-4 flex items-end justify-between flex-wrap gap-2 shrink-0">
       <div>
         <h1 class="text-2xl font-bold flex items-center gap-2">Alerts
           <span *ngIf="data() && data()!.counts.total > 0" class="badge badge-error">{{ data()!.counts.total }}</span>
@@ -35,7 +36,7 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
       </div>
     </div>
 
-    <div class="card bg-base-100 border border-base-300 mb-4">
+    <div class="card bg-base-100 border border-base-300 mb-4 shrink-0">
       <div class="card-body py-3 flex flex-row flex-wrap items-center gap-2">
         <span class="text-xs opacity-60">Filter by due / expiry date:</span>
         <lms-export-toolbar
@@ -51,7 +52,7 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
     </div>
 
     <!-- Stat tiles + tabs -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 shrink-0">
       <div class="card border cursor-pointer transition-all"
            [class.border-error]="tab() === 'overdue'"
            [class.border-base-300]="tab() !== 'overdue'"
@@ -91,10 +92,23 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
           <div class="text-xs opacity-60">Within next 7 days</div>
         </div>
       </div>
+      <div class="card border cursor-pointer transition-all"
+           [class.border-error]="tab() === 'balance'"
+           [class.border-base-300]="tab() !== 'balance'"
+           [class.bg-error]="tab() === 'balance'"
+           [class.bg-opacity-5]="tab() === 'balance'"
+           [class.bg-base-100]="tab() !== 'balance'"
+           (click)="tab.set('balance')">
+        <div class="card-body p-4">
+          <div class="text-xs uppercase tracking-wider opacity-60">Balance due</div>
+          <div class="text-3xl font-bold text-error">{{ data()?.counts?.balanceDue ?? 0 }}</div>
+          <div class="text-xs opacity-60">Part payments — collect the rest</div>
+        </div>
+      </div>
     </div>
 
     <!-- Bulk send bar -->
-    <div *ngIf="currentCount() > 0" class="flex items-center gap-2 mb-2 text-sm flex-wrap">
+    <div *ngIf="currentCount() > 0" class="flex items-center gap-2 mb-2 text-sm flex-wrap shrink-0">
       <span class="opacity-60">Notify everyone in <span class="font-medium">{{ tabLabel() }}</span> ({{ currentCount() }}):</span>
       <div class="dropdown">
         <div tabindex="0" role="button" class="btn btn-xs btn-outline">
@@ -111,12 +125,15 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
       </div>
     </div>
 
+    <!-- The active tab's table fills this region and scrolls internally (matches Students) -->
+    <div class="flex-1 min-h-0 flex flex-col">
+
     <!-- Overdue -->
     <ng-container *ngIf="tab() === 'overdue'">
-      <div class="card bg-base-100 border border-base-300 overflow-hidden">
-        <div class="overflow-x-auto">
+      <div class="card bg-base-100 border border-base-300 overflow-hidden flex flex-col flex-1 min-h-0">
+        <div class="overflow-auto flex-1 min-h-0">
           <table class="table table-zebra">
-            <thead>
+            <thead class="sticky top-0 z-10 bg-base-100">
               <tr><th>Student</th><th>Seat</th><th>Shift</th><th>Rate</th><th>Due on</th><th>Days past</th><th class="text-right">Actions</th></tr>
             </thead>
             <tbody>
@@ -160,10 +177,10 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
 
     <!-- Due soon -->
     <ng-container *ngIf="tab() === 'dueSoon'">
-      <div class="card bg-base-100 border border-base-300 overflow-hidden">
-        <div class="overflow-x-auto">
+      <div class="card bg-base-100 border border-base-300 overflow-hidden flex flex-col flex-1 min-h-0">
+        <div class="overflow-auto flex-1 min-h-0">
           <table class="table table-zebra">
-            <thead>
+            <thead class="sticky top-0 z-10 bg-base-100">
               <tr><th>Student</th><th>Seat</th><th>Shift</th><th>Rate</th><th>Due on</th><th>In</th><th class="text-right">Actions</th></tr>
             </thead>
             <tbody>
@@ -207,10 +224,10 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
 
     <!-- Expiring memberships -->
     <ng-container *ngIf="tab() === 'expiring'">
-      <div class="card bg-base-100 border border-base-300 overflow-hidden">
-        <div class="overflow-x-auto">
+      <div class="card bg-base-100 border border-base-300 overflow-hidden flex flex-col flex-1 min-h-0">
+        <div class="overflow-auto flex-1 min-h-0">
           <table class="table table-zebra">
-            <thead>
+            <thead class="sticky top-0 z-10 bg-base-100">
               <tr><th>Student</th><th>Phone</th><th>Expires</th><th>In</th><th class="text-right">Actions</th></tr>
             </thead>
             <tbody>
@@ -249,6 +266,38 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring';
         </div>
       </div>
     </ng-container>
+
+    <!-- Balance due -->
+    <ng-container *ngIf="tab() === 'balance'">
+      <div class="card bg-base-100 border border-base-300 overflow-hidden flex flex-col flex-1 min-h-0">
+        <div class="overflow-auto flex-1 min-h-0">
+          <table class="table table-zebra">
+            <thead class="sticky top-0 z-10 bg-base-100">
+              <tr><th>Student</th><th>Phone</th><th>Balance due</th><th class="text-right">Actions</th></tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let a of data()?.balanceDue ?? []">
+                <td>
+                  <div class="font-medium">{{ a.student.fullName }}</div>
+                  <div class="opacity-60 text-xs">{{ a.student.code }}</div>
+                </td>
+                <td class="text-sm">{{ a.student.phone }}</td>
+                <td><span class="badge badge-error">₹{{ a.amount | number }}</span></td>
+                <td class="text-right">
+                  <a class="btn btn-primary btn-xs" [routerLink]="['/students', a.student.id, 'profile']">Collect balance</a>
+                </td>
+              </tr>
+              <tr *ngIf="(data()?.balanceDue?.length ?? 0) === 0">
+                <td colspan="4" class="text-center opacity-60 py-8">No outstanding balances. All settled.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ng-container>
+
+    </div>
+    <!-- /scroll region -->
   `,
 })
 export class AlertsComponent implements OnInit {
@@ -269,7 +318,8 @@ export class AlertsComponent implements OnInit {
 
   tabLabel = computed(() =>
     this.tab() === 'overdue' ? 'Overdue' :
-    this.tab() === 'dueSoon' ? 'Due-soon' : 'Expiring',
+    this.tab() === 'dueSoon' ? 'Due-soon' :
+    this.tab() === 'balance' ? 'Balance-due' : 'Expiring',
   );
 
   currentCount = computed(() => {
@@ -277,6 +327,7 @@ export class AlertsComponent implements OnInit {
     if (!d) return 0;
     return this.tab() === 'overdue' ? d.overdue.length
       : this.tab() === 'dueSoon' ? d.dueSoon.length
+      : this.tab() === 'balance' ? d.balanceDue.length
       : d.expiringSoon.length;
   });
 
@@ -340,7 +391,7 @@ export class AlertsComponent implements OnInit {
         { header: 'Due on', value: (a) => fmtDate(a.nextDueDate) },
         { header: 'Days until', value: (a) => a.daysUntil },
       ], kind, 'Payments due soon', range);
-    } else {
+    } else if (this.tab() === 'expiring') {
       this.exportRows<ExpiringAlert>(d.expiringSoon, [
         { header: 'Student code', value: (a) => a.student.code },
         { header: 'Student name', value: (a) => a.student.fullName },
@@ -348,6 +399,13 @@ export class AlertsComponent implements OnInit {
         { header: 'Expires on', value: (a) => fmtDate(a.expiresAt) },
         { header: 'Days until', value: (a) => a.daysUntil },
       ], kind, 'Memberships expiring', range);
+    } else {
+      this.exportRows<BalanceAlert>(d.balanceDue, [
+        { header: 'Student code', value: (a) => a.student.code },
+        { header: 'Student name', value: (a) => a.student.fullName },
+        { header: 'Phone', value: (a) => a.student.phone },
+        { header: 'Balance due (INR)', value: (a) => a.amount },
+      ], kind, 'Outstanding balances', range);
     }
   }
 

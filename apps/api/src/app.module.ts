@@ -18,9 +18,11 @@ import { CronModule } from './cron/cron.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { ReportsModule } from './reports/reports.module';
 import { PgRoomsModule } from './pg-rooms/pg-rooms.module';
+import { TiffinModule } from './tiffin/tiffin.module';
 import { SettingsModule } from './settings/settings.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AuditModule } from './audit/audit.module';
+import { EmailModule } from './email/email.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -36,6 +38,7 @@ import { AuditInterceptor } from './audit/audit.interceptor';
     FeatureFlagsModule,
     AuditModule,
     IntegrationsModule,
+    EmailModule,
     StudentsModule,
     ExamTargetsModule,
     SeatsModule,
@@ -48,6 +51,7 @@ import { AuditInterceptor } from './audit/audit.interceptor';
     AlertsModule,
     ReportsModule,
     PgRoomsModule,
+    TiffinModule,
     SettingsModule,
   ],
   providers: [

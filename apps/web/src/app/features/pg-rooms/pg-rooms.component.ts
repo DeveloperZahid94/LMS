@@ -17,10 +17,11 @@ type SortField = 'number' | 'price' | 'occupancy';
 @Component({
   selector: 'lms-pg-rooms',
   standalone: true,
+  host: { class: 'flex flex-col h-[calc(100dvh-5.75rem)] min-h-0 overflow-hidden' },
   imports: [CommonModule, FormsModule, ReactiveFormsModule, SearchableSelectComponent],
   template: `
     <!-- =============================== HEADER =============================== -->
-    <div class="flex items-end justify-between mb-4 flex-wrap gap-2">
+    <div class="flex items-end justify-between mb-4 flex-wrap gap-2 shrink-0">
       <div>
         <h1 class="text-2xl font-bold">PG Rooms</h1>
         <p class="text-sm opacity-60 mt-1">Manage multi-bed accommodations and assignments</p>
@@ -43,7 +44,7 @@ type SortField = 'number' | 'price' | 'occupancy';
     </div>
 
     <!-- =============================== KPI STRIP =============================== -->
-    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3">
+    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3 shrink-0">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 divide-x divide-base-200">
         <div class="px-3 py-2">
           <div class="text-[10px] uppercase tracking-wider opacity-60">Total Rooms</div>
@@ -73,7 +74,7 @@ type SortField = 'number' | 'price' | 'occupancy';
     </div>
 
     <!-- =============================== FILTER BAR =============================== -->
-    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3">
+    <div class="card bg-base-100 border border-base-300 shadow-sm mb-3 shrink-0">
       <div class="p-2 flex flex-row flex-wrap items-center gap-2">
         <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[260px]">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -108,16 +109,18 @@ type SortField = 'number' | 'price' | 'occupancy';
       </div>
     </div>
 
-    <!-- =============================== ROOM CARDS =============================== -->
-    <div *ngIf="loading()" class="text-center py-10"><span class="loading loading-spinner loading-md"></span></div>
+    <!-- =============================== ROOM CARDS (single scroll region) =============================== -->
+    <div class="flex-1 min-h-0 overflow-auto">
 
-    <div *ngIf="!loading() && sortedRooms().length === 0" class="text-center opacity-60 py-12 card bg-base-100 border border-base-300">
+    <div *ngIf="loading()" class="h-full flex items-center justify-center"><span class="loading loading-spinner loading-md"></span></div>
+
+    <div *ngIf="!loading() && sortedRooms().length === 0" class="h-full flex flex-col items-center justify-center text-center opacity-60 card bg-base-100 border border-base-300">
       <div class="text-base mb-1">No PG rooms match your filters.</div>
       <button class="link link-primary text-sm" (click)="openCreate()">Add the first room →</button>
     </div>
 
     <!-- GRID VIEW -->
-    <div *ngIf="view() === 'grid' && sortedRooms().length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div *ngIf="view() === 'grid' && sortedRooms().length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 content-start">
       <div *ngFor="let r of sortedRooms()" class="card bg-base-100 border border-base-300 shadow-sm hover:shadow-md transition-shadow">
         <div class="card-body p-5">
           <!-- Top row -->
@@ -275,6 +278,9 @@ type SortField = 'number' | 'price' | 'occupancy';
         </table>
       </div>
     </div>
+
+    </div>
+    <!-- /scroll region -->
 
     <!-- =============================== CREATE ROOM MODAL =============================== -->
     <dialog class="modal" [class.modal-open]="createOpen()">

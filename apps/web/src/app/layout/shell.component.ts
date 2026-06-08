@@ -56,9 +56,9 @@ interface NavItem {
                 {{ alertCount() > 99 ? '99+' : alertCount() }}
               </span>
             </button>
-            <button class="btn btn-ghost btn-circle btn-sm" (click)="theme.toggle()" [title]="theme.theme() === 'dark' ? 'Light mode' : 'Dark mode'">
-              <span *ngIf="theme.theme() === 'dark'">☀</span>
-              <span *ngIf="theme.theme() === 'light'">☾</span>
+            <button class="btn btn-ghost btn-circle btn-sm" (click)="theme.toggle()" [title]="theme.isDark() ? 'Light mode' : 'Dark mode'">
+              <span *ngIf="theme.isDark()">☀</span>
+              <span *ngIf="!theme.isDark()">☾</span>
             </button>
             <div class="dropdown dropdown-end" *ngIf="auth.user() as u">
               <div tabindex="0" role="button" class="btn btn-ghost btn-sm flex items-center gap-2 normal-case">
@@ -152,40 +152,70 @@ interface NavItem {
       align-items: center;
       gap: 0.75rem;
       padding: 0.55rem 0.75rem;
-      border-radius: 0.625rem;
+      border-radius: 0.7rem;
       font-size: 0.875rem;
       font-weight: 500;
-      color: hsl(var(--bc) / 0.75);
-      transition: background-color .18s ease, color .18s ease, transform .12s ease;
+      color: hsl(var(--bc) / 0.72);
+      transition: background-color .2s ease, color .2s ease, transform .15s ease, box-shadow .25s ease;
       cursor: pointer;
       position: relative;
+      isolation: isolate;
     }
+    /* Hover: gentle tinted fill + slide toward content */
     .lms-nav-link:hover {
       background: hsl(var(--b2));
       color: hsl(var(--bc));
+      transform: translateX(3px);
     }
-    .lms-nav-link.lms-nav-active {
-      background: linear-gradient(90deg, hsl(var(--p) / 0.12), hsl(var(--p) / 0.04));
-      color: hsl(var(--p));
+    /* Tactile press feedback when a menu is clicked */
+    .lms-nav-link:active {
+      transform: translateX(3px) scale(.96);
+    }
+
+    /* Active item: SOLID primary-coloured pill so it's unmistakable */
+    .lms-nav-link.lms-nav-active,
+    .lms-nav-link.lms-nav-active:hover {
+      background: hsl(var(--p));
+      color: hsl(var(--pc));
       font-weight: 600;
+      box-shadow: 0 8px 18px -6px hsl(var(--p) / 0.6);
+      animation: lms-nav-pop .3s cubic-bezier(.16, 1, .3, 1);
     }
+    .lms-nav-link.lms-nav-active:hover { transform: translateX(3px); }
+
+    /* Bright accent bar at the left edge of the active pill */
     .lms-nav-link.lms-nav-active::before {
       content: '';
       position: absolute;
-      left: -0.5rem;
-      top: 25%;
-      bottom: 25%;
+      left: 0;
+      top: 50%;
       width: 3px;
-      background: hsl(var(--p));
+      height: 58%;
+      background: hsl(var(--pc));
       border-radius: 999px;
+      transform: translateY(-50%);
+      animation: lms-nav-bar .32s cubic-bezier(.16, 1, .3, 1);
     }
+
+    /* Pointing hand on the active item — wiggles to draw the eye */
+    .lms-nav-link.lms-nav-active::after {
+      content: '👈';
+      margin-left: auto;
+      font-size: 1rem;
+      line-height: 1;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.25));
+      animation: lms-nav-point .7s ease-in-out infinite alternate;
+    }
+    /* No room for the hand when the rail is collapsed */
+    .lms-nav-link.lms-nav-link--collapsed.lms-nav-active::after {
+      display: none;
+    }
+
     .lms-nav-link.lms-nav-link--collapsed {
       justify-content: center;
       padding: 0.55rem 0;
     }
-    .lms-nav-link.lms-nav-link--collapsed.lms-nav-active::before {
-      left: -0.25rem;
-    }
+
     .lms-nav-icon {
       width: 1.75rem;
       height: 1.75rem;
@@ -195,20 +225,46 @@ interface NavItem {
       font-size: 1rem;
       border-radius: 0.5rem;
       background: hsl(var(--b2));
-      transition: background-color .18s ease, color .18s ease, transform .12s ease;
+      transition: background-color .2s ease, color .2s ease, transform .2s ease, box-shadow .25s ease;
     }
     .lms-nav-link:hover .lms-nav-icon {
-      transform: scale(1.05);
+      transform: scale(1.1) rotate(-4deg);
     }
     .lms-nav-link.lms-nav-active .lms-nav-icon {
-      background: hsl(var(--p));
+      background: hsl(var(--pc) / 0.2);
       color: hsl(var(--pc));
+      transform: scale(1.06);
     }
     .lms-nav-label {
       flex: 1;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    @keyframes lms-nav-pop {
+      from { transform: translateX(-5px); opacity: .55; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    @keyframes lms-nav-bar {
+      from { height: 0;   opacity: 0; }
+      to   { height: 58%; opacity: 1; }
+    }
+    @keyframes lms-nav-point {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-4px); }
+    }
+
+    /* Respect users who prefer minimal motion */
+    @media (prefers-reduced-motion: reduce) {
+      .lms-nav-link,
+      .lms-nav-link:hover,
+      .lms-nav-link:active,
+      .lms-nav-link .lms-nav-icon,
+      .lms-nav-link:hover .lms-nav-icon { transform: none; }
+      .lms-nav-link.lms-nav-active,
+      .lms-nav-link.lms-nav-active::before,
+      .lms-nav-link.lms-nav-active::after { animation: none; }
     }
   `],
 })
@@ -251,6 +307,7 @@ export class ShellComponent implements OnInit {
     { label: 'Students', icon: '☺', path: '/students', feature: FeatureKey.STUDENTS },
     { label: 'Seats', icon: '☐', path: '/seats', feature: FeatureKey.SEATS },
     { label: 'PG Rooms', icon: '🛏', path: '/pg-rooms', feature: FeatureKey.PG_ROOMS },
+    { label: 'Tiffin', icon: '🍱', path: '/tiffin', feature: FeatureKey.TIFFIN },
     { label: 'Attendance', icon: '✓', path: '/attendance', feature: FeatureKey.QR_ATTENDANCE },
     { label: 'Payments', icon: '₹', path: '/payments', feature: FeatureKey.PAYMENT_GATEWAY },
     { label: 'Alerts',   icon: '⚠', path: '/alerts', feature: FeatureKey.ALERTS },

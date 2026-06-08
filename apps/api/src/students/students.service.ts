@@ -7,7 +7,8 @@ import { AuditService } from '../audit/audit.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { ListStudentsDto } from './dto/list-students.dto';
-import { PaginatedResponse } from '@lms/shared';
+import { SettleBalanceDto } from './dto/settle-balance.dto';
+import { PaginatedResponse, PaymentMethod, PaymentStatus } from '@lms/shared';
 
 /** Maps a Prisma "unique constraint" violation to a friendly field name. */
 function describeUniqueTarget(target: unknown): string | null {
@@ -83,6 +84,7 @@ export class StudentsService {
       const { seatAssignments, ...rest } = s;
       return {
         ...rest,
+        outstandingBalance: Number((rest as any).outstandingBalance ?? 0),
         activeSeat: a
           ? {
               id: a.id,
@@ -103,7 +105,7 @@ export class StudentsService {
     const tenantId = this.tenantCtx.tenantId;
     const student = await this.prisma.student.findFirst({ where: { id, tenantId } });
     if (!student) throw new NotFoundException('Student not found');
-    return student;
+    return { ...student, outstandingBalance: Number((student as any).outstandingBalance ?? 0) };
   }
 
   async create(dto: CreateStudentDto) {
@@ -142,6 +144,7 @@ export class StudentsService {
           voterIdUrl: dto.voterIdUrl ?? null,
           expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
           status: dto.status ?? undefined,
+          outstandingBalance: dto.outstandingBalance ?? 0,
         },
       });
     } catch (err) {
@@ -219,6 +222,46 @@ export class StudentsService {
       diff: { before: existing },
     });
     return { id: existing.id, deleted: true };
+  }
+
+  /**
+   * Record a payment against a student's account balance. The full amount is applied
+   * to the signed balance (positive = due, negative = advance/credit): paying more than
+   * the due rolls the surplus into advance, and a payment with nothing due becomes advance.
+   */
+  async settleBalance(id: string, dto: SettleBalanceDto) {
+    const student = await this.findOne(id);
+    const tenantId = student.tenantId;
+    const current = Number(student.outstandingBalance ?? 0);
+    const amount = Number(dto.amount);
+
+    const isAdvance = current <= 0;
+    const tag = isAdvance ? '[Advance]' : '[Balance]';
+    const payment = await this.prisma.payment.create({
+      data: {
+        tenantId,
+        branchId: student.branchId,
+        studentId: id,
+        amount,
+        method: (dto.method as any) ?? PaymentMethod.CASH,
+        status: PaymentStatus.PAID,
+        paidAt: new Date(),
+        notes: dto.notes ? `${tag} ${dto.notes}` : `${tag} payment`,
+      },
+    });
+
+    // Signed: due shrinks; any surplus becomes advance (negative balance).
+    const newBalance = Number((current - amount).toFixed(2));
+    await this.prisma.student.update({ where: { id }, data: { outstandingBalance: newBalance } });
+    await this.audit.record({
+      tenantId,
+      userId: this.tenantCtx.userId,
+      action: 'SETTLE_BALANCE',
+      entity: 'students',
+      entityId: id,
+      diff: { applied: amount, before: current, after: newBalance, paymentId: payment.id },
+    });
+    return { studentId: id, applied: amount, outstandingBalance: newBalance, paymentId: payment.id };
   }
 
   /** Admin reset of a student's kiosk password — returns a temp password to share, forces change. */

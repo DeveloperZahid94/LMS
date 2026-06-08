@@ -1,4 +1,4 @@
-import { IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { PaymentMethod } from '@lms/shared';
 
 export class CreatePaymentDto {
@@ -30,6 +30,14 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsISO8601()
   nextDueDate?: string;
+
+  /**
+   * When true, this payment is applied to the student's account balance:
+   * it clears any due and rolls a surplus into advance/credit (signed balance).
+   */
+  @IsOptional()
+  @IsBoolean()
+  applyToAccount?: boolean;
 }
 
 export class RazorpayCreateOrderDto {

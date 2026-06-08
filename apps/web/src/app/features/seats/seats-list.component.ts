@@ -23,9 +23,10 @@ interface StudentLite {
 @Component({
   selector: 'lms-seats-list',
   standalone: true,
+  host: { class: 'flex flex-col h-[calc(100dvh-5.75rem)] min-h-0 overflow-hidden' },
   imports: [CommonModule, FormsModule, ReactiveFormsModule, SearchableSelectComponent],
   template: `
-    <div class="mb-4 flex items-end justify-between flex-wrap gap-2">
+    <div class="mb-4 flex items-end justify-between flex-wrap gap-2 shrink-0">
       <div>
         <h1 class="text-2xl font-bold">Seats & cabins</h1>
         <p class="text-sm opacity-60">Manage inventory, rates, and allocations.</p>
@@ -44,7 +45,7 @@ interface StudentLite {
       </div>
     </div>
 
-    <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
+    <div class="mb-4 flex items-center justify-between gap-3 flex-wrap shrink-0">
       <div role="tablist" class="tabs tabs-boxed bg-base-200 w-fit">
         <a role="tab" class="tab gap-2" [class.tab-active]="tab() === 'manage'" (click)="tab.set('manage')">
           <span>🪑</span> Manage <span class="badge badge-sm">{{ seats().length }}</span>
@@ -84,9 +85,12 @@ interface StudentLite {
       </div>
     </div>
 
+    <!-- All tab content scrolls within this single region so the page itself never scrolls -->
+    <div class="flex-1 min-h-0 overflow-auto">
+
     <!-- ============================================ TAB 1: MANAGE ======================================== -->
     <ng-container *ngIf="tab() === 'manage'">
-      <div *ngIf="seats().length === 0" class="card bg-base-100 border border-base-300">
+      <div *ngIf="seats().length === 0" class="card bg-base-100 border border-base-300 h-full grid place-items-center">
         <div class="card-body text-center py-10">
           <p class="opacity-60 mb-3">No seats configured yet.</p>
           <button class="btn btn-primary mx-auto" (click)="openAddSeat()">+ Add your first seat</button>
@@ -95,7 +99,7 @@ interface StudentLite {
 
       <!-- Card view -->
       <div *ngIf="viewMode() === 'card' && seats().length > 0"
-           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
         <div *ngFor="let s of pagedSeats()"
              class="card bg-base-100 border border-base-300 hover:shadow-lg hover:border-primary/40 cursor-pointer transition-all"
              [class.opacity-50]="!s.isActive"
@@ -517,6 +521,9 @@ interface StudentLite {
         </div>
       </div>
     </ng-container>
+
+    </div>
+    <!-- /scroll region -->
 
     <!-- ============================================ SEAT FORM MODAL ====================================== -->
     <dialog class="modal" [class.modal-open]="seatModal()">

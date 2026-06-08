@@ -55,4 +55,9 @@ export class StudentsApiService {
       `${this.base}/${id}/reset-password`, newPassword ? { newPassword } : {},
     );
   }
+  settleBalance(id: string, body: { amount: number; method?: string; notes?: string }) {
+    return this.http.post<{ studentId: string; applied: number; outstandingBalance: number; paymentId: string }>(
+      `${this.base}/${id}/settle-balance`, body,
+    );
+  }
 }

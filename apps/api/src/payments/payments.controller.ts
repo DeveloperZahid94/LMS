@@ -47,6 +47,11 @@ export class PaymentsController {
     return this.service.softDelete(id, dto?.reason);
   }
 
+  @Post(':id/email-receipt')
+  emailReceipt(@Param('id') id: string) {
+    return this.service.emailReceipt(id);
+  }
+
   @Post('razorpay/order')
   createOrder(@Body() dto: RazorpayCreateOrderDto) {
     return this.service.createRazorpayOrder(dto);

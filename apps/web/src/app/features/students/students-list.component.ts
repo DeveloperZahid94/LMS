@@ -25,10 +25,11 @@ const AVATAR_PALETTE = [
 @Component({
   selector: 'lms-students-list',
   standalone: true,
+  host: { class: 'flex flex-col h-[calc(100dvh-5.75rem)] min-h-0 overflow-hidden' },
   imports: [CommonModule, FormsModule, RouterLink, ExportToolbarComponent],
   template: `
     <!-- =============================== HEADER =============================== -->
-    <div class="flex items-end justify-between mb-5 flex-wrap gap-2">
+    <div class="flex items-end justify-between mb-5 flex-wrap gap-2 shrink-0">
       <div>
         <h1 class="text-2xl font-bold">Students</h1>
         <p class="text-sm opacity-60 mt-1">Manage your library and study-cabin students</p>
@@ -37,7 +38,7 @@ const AVATAR_PALETTE = [
     </div>
 
     <!-- =============================== FILTER BAR =============================== -->
-    <div class="card bg-base-100 border border-base-300 mb-3 shadow-sm">
+    <div class="card bg-base-100 border border-base-300 mb-3 shadow-sm shrink-0">
       <div class="card-body p-2 flex flex-row flex-wrap items-center gap-2">
         <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[280px]">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -119,10 +120,10 @@ const AVATAR_PALETTE = [
     </div>
 
     <!-- =============================== LIST VIEW =============================== -->
-    <div *ngIf="view() === 'list'" class="card bg-base-100 border border-base-300 shadow-sm overflow-hidden">
-      <div class="overflow-x-auto">
+    <div *ngIf="view() === 'list'" class="card bg-base-100 border border-base-300 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
+      <div class="overflow-auto flex-1 min-h-0">
         <table class="table">
-          <thead class="bg-base-200">
+          <thead class="bg-base-200 sticky top-0 z-10">
             <tr class="text-xs uppercase tracking-wider">
               <th>Student</th>
               <th>Contact</th>
@@ -144,6 +145,12 @@ const AVATAR_PALETTE = [
                   <div>
                     <div class="font-semibold">{{ s.fullName }}</div>
                     <div class="text-xs opacity-60 mt-0.5">{{ s.code }}</div>
+                    <span *ngIf="s.outstandingBalance > 0" class="badge badge-error badge-sm mt-1" title="Outstanding balance">
+                      ₹{{ s.outstandingBalance | number }} due
+                    </span>
+                    <span *ngIf="s.outstandingBalance < 0" class="badge badge-success badge-sm mt-1" title="Advance / credit">
+                      ₹{{ -s.outstandingBalance | number }} adv
+                    </span>
                   </div>
                 </div>
               </td>
@@ -213,13 +220,13 @@ const AVATAR_PALETTE = [
     </div>
 
     <!-- =============================== GRID VIEW =============================== -->
-    <div *ngIf="view() === 'grid'">
-      <div *ngIf="loading()" class="text-center py-10"><span class="loading loading-spinner loading-md"></span></div>
-      <div *ngIf="!loading() && data().length === 0" class="text-center opacity-60 py-10">
+    <div *ngIf="view() === 'grid'" class="flex-1 min-h-0 overflow-auto">
+      <div *ngIf="loading()" class="h-full flex items-center justify-center"><span class="loading loading-spinner loading-md"></span></div>
+      <div *ngIf="!loading() && data().length === 0" class="h-full flex flex-col items-center justify-center text-center opacity-60">
         <div class="text-base mb-1">No students match your filters.</div>
         <a routerLink="/students/new" class="link link-primary text-sm">Add the first student →</a>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <div *ngIf="!loading() && data().length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
         <div *ngFor="let s of data()" class="card bg-base-100 border border-base-300 shadow-sm hover:shadow-md transition-shadow">
           <div class="card-body p-4">
             <div class="flex items-start gap-3">
@@ -231,6 +238,8 @@ const AVATAR_PALETTE = [
               <div class="flex-1 min-w-0">
                 <div class="font-semibold truncate">{{ s.fullName }}</div>
                 <div class="text-xs opacity-60">{{ s.code }}</div>
+                <span *ngIf="s.outstandingBalance > 0" class="badge badge-error badge-sm mt-1">₹{{ s.outstandingBalance | number }} due</span>
+                <span *ngIf="s.outstandingBalance < 0" class="badge badge-success badge-sm mt-1">₹{{ -s.outstandingBalance | number }} adv</span>
               </div>
               <span class="badge badge-sm"
                 [class.badge-success]="s.status==='ACTIVE'"
@@ -286,7 +295,7 @@ const AVATAR_PALETTE = [
     </div>
 
     <!-- =============================== PAGINATION =============================== -->
-    <div class="flex items-center justify-between mt-4 text-sm flex-wrap gap-2">
+    <div class="flex items-center justify-between pt-3 text-sm flex-wrap gap-2 shrink-0">
       <div class="opacity-60">
         Showing <span class="font-medium">{{ data().length === 0 ? 0 : (page() - 1) * limit + 1 }}</span>
         to <span class="font-medium">{{ rangeEnd() }}</span>

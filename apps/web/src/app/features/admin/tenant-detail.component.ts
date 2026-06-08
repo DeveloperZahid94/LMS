@@ -1,16 +1,17 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FEATURE_LABELS, FeatureKey, TenantDetail, TenantUser } from '@lms/shared';
-import { AdminApiService } from './admin.service';
+import { AdminApiService, EmailConfig } from './admin.service';
 import { ToastService } from '../../core/services/toast.service';
 
-type Tab = 'overview' | 'users' | 'features';
+type Tab = 'overview' | 'users' | 'features' | 'email';
 
 @Component({
   selector: 'lms-tenant-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="mb-4">
       <a routerLink="/admin/tenants" class="link link-hover text-sm opacity-70">← Tenants</a>
@@ -36,6 +37,7 @@ type Tab = 'overview' | 'users' | 'features';
         <a role="tab" class="tab" [class.tab-active]="tab() === 'overview'" (click)="tab.set('overview')">Overview</a>
         <a role="tab" class="tab" [class.tab-active]="tab() === 'users'" (click)="tab.set('users')">Users ({{ t.users.length }})</a>
         <a role="tab" class="tab" [class.tab-active]="tab() === 'features'" (click)="tab.set('features')">Features</a>
+        <a role="tab" class="tab" [class.tab-active]="tab() === 'email'" (click)="tab.set('email'); loadEmail()">Email</a>
       </div>
 
       <!-- OVERVIEW -->
@@ -113,6 +115,85 @@ type Tab = 'overview' | 'users' | 'features';
           </div>
         </div>
       </div>
+
+      <!-- EMAIL INTEGRATION -->
+      <div *ngIf="tab() === 'email'" class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card-body p-5">
+            <div class="font-semibold mb-1">Email Provider</div>
+            <p class="text-sm opacity-60 mb-3">Configure how this tenant sends emails (receipts, reminders).</p>
+            <div *ngIf="!emailCfg()" class="text-center py-6"><span class="loading loading-spinner"></span></div>
+            <div *ngIf="emailCfg() as cfg" class="space-y-3">
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Provider</span></div>
+                <select class="select select-bordered select-sm" [(ngModel)]="provider">
+                  <option value="NONE">None (disabled)</option>
+                  <option value="BREVO">Brevo</option>
+                  <option value="SENDGRID">SendGrid</option>
+                </select>
+              </label>
+
+              <label class="form-control" *ngIf="provider === 'BREVO'">
+                <div class="label py-1"><span class="label-text">Brevo API key</span>
+                  <span class="label-text-alt text-success" *ngIf="cfg.brevoKeySet">✓ saved</span></div>
+                <input class="input input-bordered input-sm" type="password" [(ngModel)]="brevoApiKey"
+                       [placeholder]="cfg.brevoKeySet ? '•••••• (leave blank to keep)' : 'xkeysib-…'" />
+              </label>
+
+              <label class="form-control" *ngIf="provider === 'SENDGRID'">
+                <div class="label py-1"><span class="label-text">SendGrid API key</span>
+                  <span class="label-text-alt text-success" *ngIf="cfg.sendgridKeySet">✓ saved</span></div>
+                <input class="input input-bordered input-sm" type="password" [(ngModel)]="sendgridApiKey"
+                       [placeholder]="cfg.sendgridKeySet ? '•••••• (leave blank to keep)' : 'SG.…'" />
+              </label>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label class="form-control">
+                  <div class="label py-1"><span class="label-text">From email</span></div>
+                  <input class="input input-bordered input-sm" type="email" [(ngModel)]="fromEmail" placeholder="no-reply@yourlib.com" />
+                </label>
+                <label class="form-control">
+                  <div class="label py-1"><span class="label-text">From name</span></div>
+                  <input class="input input-bordered input-sm" [(ngModel)]="fromName" placeholder="Acme Library" />
+                </label>
+              </div>
+
+              <label class="flex items-center justify-between p-3 rounded-lg bg-base-200">
+                <div>
+                  <div class="font-medium text-sm">Enabled</div>
+                  <div class="text-xs opacity-60">Turn on to allow this tenant to send emails</div>
+                </div>
+                <input type="checkbox" class="toggle toggle-primary" [(ngModel)]="enabled" />
+              </label>
+
+              <div class="flex justify-end">
+                <button class="btn btn-primary btn-sm" (click)="saveEmail()" [disabled]="emailSaving()">
+                  <span *ngIf="emailSaving()" class="loading loading-spinner loading-xs"></span> Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-base-100 border border-base-300 shadow-sm">
+          <div class="card-body p-5">
+            <div class="font-semibold mb-1">Send a test email</div>
+            <p class="text-sm opacity-60 mb-3">Verifies the saved provider + key actually deliver.</p>
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Send to</span></div>
+              <input class="input input-bordered input-sm" type="email" [(ngModel)]="testTo" placeholder="you@example.com" />
+            </label>
+            <div class="flex justify-end mt-3">
+              <button class="btn btn-outline btn-sm" (click)="testEmail()" [disabled]="!testTo || emailTesting()">
+                <span *ngIf="emailTesting()" class="loading loading-spinner loading-xs"></span> ✉ Send test
+              </button>
+            </div>
+            <div class="text-xs opacity-60 mt-3">
+              Provider docs: Brevo → SMTP & API → API Keys · SendGrid → Settings → API Keys (Mail Send scope).
+            </div>
+          </div>
+        </div>
+      </div>
     </ng-container>
 
     <!-- Reset-password result modal -->
@@ -145,6 +226,18 @@ export class TenantDetailComponent implements OnInit {
   resetResult = signal<{ userId: string; tempPassword: string } | null>(null);
   labels = FEATURE_LABELS;
 
+  // Email config
+  emailCfg = signal<EmailConfig | null>(null);
+  provider: 'NONE' | 'BREVO' | 'SENDGRID' = 'NONE';
+  brevoApiKey = '';
+  sendgridApiKey = '';
+  fromEmail = '';
+  fromName = '';
+  enabled = false;
+  testTo = '';
+  emailSaving = signal(false);
+  emailTesting = signal(false);
+
   private id = '';
 
   ngOnInit() {
@@ -157,6 +250,49 @@ export class TenantDetailComponent implements OnInit {
     this.api.tenantDetail(this.id).subscribe({
       next: (t) => { this.tenant.set(t); this.loading.set(false); },
       error: () => { this.toast.error('Could not load tenant'); this.loading.set(false); },
+    });
+  }
+
+  loadEmail() {
+    if (this.emailCfg()) return; // load once
+    this.api.getEmailConfig(this.id).subscribe({
+      next: (c) => {
+        this.emailCfg.set(c);
+        this.provider = c.provider;
+        this.fromEmail = c.fromEmail;
+        this.fromName = c.fromName;
+        this.enabled = c.enabled;
+      },
+      error: () => this.toast.error('Could not load email config'),
+    });
+  }
+
+  saveEmail() {
+    this.emailSaving.set(true);
+    this.api.saveEmailConfig(this.id, {
+      provider: this.provider,
+      brevoApiKey: this.brevoApiKey || undefined,
+      sendgridApiKey: this.sendgridApiKey || undefined,
+      fromEmail: this.fromEmail || undefined,
+      fromName: this.fromName || undefined,
+      enabled: this.enabled,
+    }).subscribe({
+      next: (c) => {
+        this.emailCfg.set(c);
+        this.brevoApiKey = ''; this.sendgridApiKey = '';
+        this.emailSaving.set(false);
+        this.toast.success('Email settings saved');
+      },
+      error: (err) => { this.toast.error(err.error?.message ?? 'Could not save'); this.emailSaving.set(false); },
+    });
+  }
+
+  testEmail() {
+    if (!this.testTo) return;
+    this.emailTesting.set(true);
+    this.api.sendTestEmail(this.id, this.testTo).subscribe({
+      next: (r) => { this.toast.success(`Test email sent via ${r.provider}`); this.emailTesting.set(false); },
+      error: (err) => { this.toast.error(err.error?.message ?? 'Test failed'); this.emailTesting.set(false); },
     });
   }
 

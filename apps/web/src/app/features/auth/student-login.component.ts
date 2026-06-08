@@ -14,9 +14,9 @@ import { ToastContainerComponent } from '../../shared/components/toast-container
   template: `
     <lms-toast-container />
     <div [attr.data-theme]="theme.theme()" class="min-h-screen flex items-center justify-center bg-base-200 p-4 relative">
-      <button class="btn btn-ghost btn-sm btn-circle absolute top-3 right-3" (click)="theme.toggle()" [title]="theme.theme() === 'dark' ? 'Light mode' : 'Dark mode'">
-        <span *ngIf="theme.theme() === 'dark'">☀</span>
-        <span *ngIf="theme.theme() === 'light'">☾</span>
+      <button class="btn btn-ghost btn-sm btn-circle absolute top-3 right-3" (click)="theme.toggle()" [title]="theme.isDark() ? 'Light mode' : 'Dark mode'">
+        <span *ngIf="theme.isDark()">☀</span>
+        <span *ngIf="!theme.isDark()">☾</span>
       </button>
       <div class="card bg-base-100 shadow-xl w-full max-w-sm">
         <div class="card-body">

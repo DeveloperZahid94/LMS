@@ -9,6 +9,7 @@ import { ExamTargetsApiService, ExamTarget } from './exam-targets.service';
 import { FeatureKey, Gender, PaymentMethod, Shift, StudentStatus } from '@lms/shared';
 import { SeatsApiService, SeatAssignmentsApiService, SeatWithAssignments } from '../seats/seats.service';
 import { PgRoomsApiService, PgRoom } from '../pg-rooms/pg-rooms.service';
+import { TiffinApiService, TiffinMealType, TiffinMealPlan } from '../tiffin/tiffin.service';
 import { PaymentsApiService } from '../payments/payments.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -176,7 +177,7 @@ interface StepDef {
                         [class.text-primary-content]="accomType() === 'CABIN_ONLY'"
                         [class.border-base-300]="accomType() !== 'CABIN_ONLY'"
                         [class.bg-base-100]="accomType() !== 'CABIN_ONLY'"
-                        (click)="setAccomType('CABIN_ONLY')">
+                        (click)="toggleAccomType('CABIN_ONLY')">
                   <span *ngIf="accomType() === 'CABIN_ONLY'" class="absolute top-3 right-3 w-6 h-6 rounded-full bg-white text-primary grid place-items-center text-sm font-bold">✓</span>
                   <div class="w-12 h-12 rounded-xl grid place-items-center text-2xl mb-3"
                        [class.bg-white]="accomType() === 'CABIN_ONLY'"
@@ -207,7 +208,7 @@ interface StepDef {
                         [class.text-success-content]="accomType() === 'PG_ONLY'"
                         [class.border-base-300]="accomType() !== 'PG_ONLY'"
                         [class.bg-base-100]="accomType() !== 'PG_ONLY'"
-                        (click)="setAccomType('PG_ONLY')">
+                        (click)="toggleAccomType('PG_ONLY')">
                   <span *ngIf="accomType() === 'PG_ONLY'" class="absolute top-3 right-3 w-6 h-6 rounded-full bg-white text-success grid place-items-center text-sm font-bold">✓</span>
                   <div class="w-12 h-12 rounded-xl grid place-items-center text-2xl mb-3"
                        [class.bg-white]="accomType() === 'PG_ONLY'"
@@ -239,7 +240,7 @@ interface StepDef {
                         [class.text-warning-content]="accomType() === 'BOTH'"
                         [class.border-base-300]="accomType() !== 'BOTH'"
                         [class.bg-base-100]="accomType() !== 'BOTH'"
-                        (click)="setAccomType('BOTH')">
+                        (click)="toggleAccomType('BOTH')">
                   <span *ngIf="accomType() === 'BOTH'" class="absolute top-3 right-3 w-6 h-6 rounded-full bg-white text-warning grid place-items-center text-sm font-bold">✓</span>
                   <div class="w-12 h-12 rounded-xl grid place-items-center text-2xl mb-3"
                        [class.bg-white]="accomType() === 'BOTH'"
@@ -260,8 +261,96 @@ interface StepDef {
                 </button>
               </div>
 
-              <p *ngIf="!accomType()" class="text-sm opacity-60 italic flex items-center gap-2">
-                <span class="text-base">👆</span>Pick an option above to continue.
+              <!-- ===== TIFFIN ADD-ON (independent — pairs with any accommodation, or stands alone) ===== -->
+              <div *ngIf="tiffinEnabled()"
+                   class="rounded-2xl border-2 overflow-hidden transition-all"
+                   [class.border-info]="tiffinActive()"
+                   [class.shadow-md]="tiffinActive()"
+                   [class.border-base-300]="!tiffinActive()">
+                <button type="button"
+                        class="w-full flex items-center justify-between gap-3 px-5 py-4 text-left"
+                        [class.bg-gradient-to-r]="tiffinActive()"
+                        [class.from-info]="tiffinActive()"
+                        [class.to-sky-600]="tiffinActive()"
+                        [class.text-info-content]="tiffinActive()"
+                        [class.bg-base-100]="!tiffinActive()"
+                        (click)="toggleTiffin()">
+                  <div class="flex items-center gap-3">
+                    <span class="w-11 h-11 rounded-xl grid place-items-center text-2xl"
+                          [class.bg-white]="tiffinActive()" [class.bg-opacity-20]="tiffinActive()"
+                          [class.bg-info]="!tiffinActive()" [class.bg-opacity-10]="!tiffinActive()"
+                          [class.text-info]="!tiffinActive()">🍱</span>
+                    <div>
+                      <div class="font-bold text-base">Tiffin / Meal Service</div>
+                      <div class="text-xs opacity-80">Add a monthly meal plan — on its own or with a cabin/PG.</div>
+                    </div>
+                  </div>
+                  <span class="w-7 h-7 rounded-full grid place-items-center text-sm font-bold border-2"
+                        [class.bg-white]="tiffinActive()" [class.text-info]="tiffinActive()" [class.border-white]="tiffinActive()"
+                        [class.border-base-300]="!tiffinActive()">
+                    <span *ngIf="tiffinActive()">✓</span>
+                  </span>
+                </button>
+
+                <div *ngIf="tiffinActive()" formGroupName="tiffin" class="p-5 pt-4 space-y-3 border-t border-base-200">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label class="form-control">
+                      <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Meal type *</span></div>
+                      <div class="grid grid-cols-2 gap-1.5">
+                        <button *ngFor="let m of mealTypes" type="button"
+                                class="btn btn-xs"
+                                [class.btn-info]="tiffinGroup.value.mealType === m.value"
+                                [class.btn-outline]="tiffinGroup.value.mealType !== m.value"
+                                (click)="tiffinGroup.patchValue({ mealType: m.value })">
+                          {{ m.label }}
+                        </button>
+                      </div>
+                    </label>
+                    <label class="form-control">
+                      <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Meals per day *</span></div>
+                      <div class="grid grid-cols-3 gap-1.5">
+                        <button *ngFor="let p of mealPlans" type="button"
+                                class="btn btn-xs"
+                                [class.btn-info]="tiffinGroup.value.mealPlan === p.value"
+                                [class.btn-outline]="tiffinGroup.value.mealPlan !== p.value"
+                                (click)="tiffinGroup.patchValue({ mealPlan: p.value })">
+                          {{ p.label }}
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="form-control">
+                      <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Join date *</span></div>
+                      <input class="input input-bordered input-sm" type="date" formControlName="joinDate" />
+                    </label>
+                    <label class="form-control">
+                      <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Due date *</span></div>
+                      <input class="input input-bordered input-sm" type="date" formControlName="dueDate" />
+                    </label>
+                  </div>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Monthly tiffin fee (₹) *</span></div>
+                    <label class="input input-bordered flex items-center gap-2">
+                      <span class="opacity-60">₹</span>
+                      <input class="grow" type="number" min="0" formControlName="monthlyFee" (change)="onTiffinFeeChange()" />
+                    </label>
+                  </label>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label class="form-control">
+                      <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Delivery person (optional)</span></div>
+                      <input class="input input-bordered input-sm" formControlName="deliveryAssignee" placeholder="e.g. Ramesh Kumar" />
+                    </label>
+                    <label class="form-control">
+                      <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Delivery phone (optional)</span></div>
+                      <input class="input input-bordered input-sm" formControlName="deliveryPhone" placeholder="e.g. 9876543210" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <p *ngIf="!accomType() && !tiffinActive()" class="text-sm opacity-60 italic flex items-center gap-2">
+                <span class="text-base">👆</span>Pick a service above to continue.
               </p>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4" *ngIf="accomType()">
@@ -445,7 +534,7 @@ interface StepDef {
               </div>
 
               <!-- Combined estimate strip -->
-              <div *ngIf="accomType() && totalMonthly() > 0"
+              <div *ngIf="(accomType() || tiffinActive()) && totalMonthly() > 0"
                    class="rounded-xl bg-base-200 px-4 py-3 flex items-center justify-between flex-wrap gap-2 text-sm">
                 <div class="flex items-center gap-4">
                   <span *ngIf="hasCabin() && cabinFee() > 0" class="flex items-center gap-1.5">
@@ -455,6 +544,10 @@ interface StepDef {
                   <span *ngIf="hasPg() && pgFee() > 0" class="flex items-center gap-1.5">
                     <span class="w-2 h-2 rounded-full bg-success"></span>
                     PG: <span class="font-semibold">₹{{ pgFee() | number }}</span>
+                  </span>
+                  <span *ngIf="hasTiffin() && tiffinFee() > 0" class="flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-info"></span>
+                    Tiffin: <span class="font-semibold">₹{{ tiffinFee() | number }}</span>
                   </span>
                 </div>
                 <div class="text-base font-bold">
@@ -494,15 +587,45 @@ interface StepDef {
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
               <!-- Payment form -->
               <div formGroupName="payment" class="md:col-span-2 space-y-3">
-                <label *ngIf="hasCabin()" class="form-control">
-                  <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Cabin initial payment (₹) *</span></div>
-                  <input class="input input-bordered input-sm" type="number" min="0" formControlName="cabinInitial" />
-                </label>
+                <div class="alert bg-base-200 border-0 py-2 text-xs">
+                  💡 Part payment is allowed — enter less than the monthly fee to collect now and keep the rest as <strong>balance due</strong>.
+                </div>
 
-                <label *ngIf="hasPg()" class="form-control">
-                  <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">PG room initial payment (₹) *</span></div>
+                <div *ngIf="hasCabin()" class="form-control">
+                  <div class="label py-1 justify-between">
+                    <span class="label-text uppercase text-[11px] tracking-wider opacity-60">Cabin payment now (₹) *</span>
+                    <button type="button" class="btn btn-ghost btn-xs" (click)="payFull('cabin')">Pay full (₹{{ feeOf('cabin') | number }})</button>
+                  </div>
+                  <input class="input input-bordered input-sm" type="number" min="0" formControlName="cabinInitial" />
+                  <div class="label py-0.5">
+                    <span *ngIf="advanceOf('cabin') > 0; else cabinDue" class="label-text-alt text-success">Advance: ₹{{ advanceOf('cabin') | number }}</span>
+                    <ng-template #cabinDue><span class="label-text-alt" [class.text-warning]="balanceOf('cabin') > 0">Balance due: ₹{{ balanceOf('cabin') | number }}</span></ng-template>
+                  </div>
+                </div>
+
+                <div *ngIf="hasPg()" class="form-control">
+                  <div class="label py-1 justify-between">
+                    <span class="label-text uppercase text-[11px] tracking-wider opacity-60">PG room payment now (₹) *</span>
+                    <button type="button" class="btn btn-ghost btn-xs" (click)="payFull('pg')">Pay full (₹{{ feeOf('pg') | number }})</button>
+                  </div>
                   <input class="input input-bordered input-sm" type="number" min="0" formControlName="pgInitial" />
-                </label>
+                  <div class="label py-0.5">
+                    <span *ngIf="advanceOf('pg') > 0; else pgDue" class="label-text-alt text-success">Advance: ₹{{ advanceOf('pg') | number }}</span>
+                    <ng-template #pgDue><span class="label-text-alt" [class.text-warning]="balanceOf('pg') > 0">Balance due: ₹{{ balanceOf('pg') | number }}</span></ng-template>
+                  </div>
+                </div>
+
+                <div *ngIf="hasTiffin()" class="form-control">
+                  <div class="label py-1 justify-between">
+                    <span class="label-text uppercase text-[11px] tracking-wider opacity-60">Tiffin payment now (₹) *</span>
+                    <button type="button" class="btn btn-ghost btn-xs" (click)="payFull('tiffin')">Pay full (₹{{ feeOf('tiffin') | number }})</button>
+                  </div>
+                  <input class="input input-bordered input-sm" type="number" min="0" formControlName="tiffinInitial" />
+                  <div class="label py-0.5">
+                    <span *ngIf="advanceOf('tiffin') > 0; else tiffinDue" class="label-text-alt text-success">Advance: ₹{{ advanceOf('tiffin') | number }}</span>
+                    <ng-template #tiffinDue><span class="label-text-alt" [class.text-warning]="balanceOf('tiffin') > 0">Balance due: ₹{{ balanceOf('tiffin') | number }}</span></ng-template>
+                  </div>
+                </div>
 
                 <label *ngIf="payMethod() === 'UPI'" class="form-control">
                   <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">UPI transaction ID *</span></div>
@@ -536,6 +659,10 @@ interface StepDef {
                       <span class="opacity-70">PG room fee</span>
                       <span class="font-medium">₹{{ pgFee() | number }}</span>
                     </div>
+                    <div *ngIf="hasTiffin()" class="flex items-center justify-between">
+                      <span class="opacity-70">Tiffin fee</span>
+                      <span class="font-medium">₹{{ tiffinFee() | number }}</span>
+                    </div>
                     <div class="divider my-1"></div>
                     <div class="flex items-center justify-between">
                       <span class="opacity-70">Total monthly fee</span>
@@ -544,6 +671,14 @@ interface StepDef {
                     <div class="flex items-center justify-between">
                       <span class="opacity-70">Total paying now</span>
                       <span class="font-semibold text-primary">₹{{ totalInitial() | number }}</span>
+                    </div>
+                    <div *ngIf="netBalance() >= 0" class="flex items-center justify-between" [class.text-warning]="netBalance() > 0">
+                      <span class="opacity-70">Balance due</span>
+                      <span class="font-semibold">₹{{ netBalance() | number }}</span>
+                    </div>
+                    <div *ngIf="netBalance() < 0" class="flex items-center justify-between text-success">
+                      <span class="opacity-70">Advance / credit</span>
+                      <span class="font-semibold">₹{{ -netBalance() | number }}</span>
                     </div>
                     <div class="divider my-1"></div>
                     <div class="flex items-center justify-between">
@@ -762,16 +897,28 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   private seatsApi = inject(SeatsApiService);
   private seatAllocApi = inject(SeatAssignmentsApiService);
   private pgApi = inject(PgRoomsApiService);
+  private tiffinApi = inject(TiffinApiService);
   private paymentsApi = inject(PaymentsApiService);
   private toast = inject(ToastService);
   private auth = inject(AuthService);
 
   /** PG accommodation is only offered when the tenant has the PG Rooms feature enabled. */
   pgEnabled = computed(() => this.auth.hasFeature(FeatureKey.PG_ROOMS));
+  /** Tiffin (meal) add-on is only offered when the tenant has the Tiffin feature enabled. */
+  tiffinEnabled = computed(() => this.auth.hasFeature(FeatureKey.TIFFIN));
 
   genders = Object.values(Gender);
   statuses = Object.values(StudentStatus);
   shifts: Shift[] = [Shift.MORNING, Shift.AFTERNOON, Shift.EVENING, Shift.NIGHT, Shift.FULL_DAY];
+  mealTypes: { value: TiffinMealType; label: string }[] = [
+    { value: 'VEG', label: '🥗 Veg' },
+    { value: 'NONVEG', label: '🍗 Non-veg' },
+  ];
+  mealPlans: { value: TiffinMealPlan; label: string }[] = [
+    { value: 'LUNCH', label: 'Lunch' },
+    { value: 'DINNER', label: 'Dinner' },
+    { value: 'BOTH', label: 'Both' },
+  ];
 
   branches = signal<Branch[]>([]);
   examTargets = signal<ExamTarget[]>([]);
@@ -787,6 +934,8 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   sameAddress = signal(false);
 
   accomType = signal<AccomType | null>(null);
+  /** Tiffin is an independent add-on: it can be on with any accommodation, or stand alone. */
+  tiffinActive = signal(false);
   payMethod = signal<PayMethod>('CASH');
 
   addingExam = signal(false);
@@ -859,9 +1008,19 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       dueDate: [this.nextMonthIso()],
       monthlyFee: [0],
     }),
+    tiffin: this.fb.group({
+      mealType: ['VEG' as TiffinMealType],
+      mealPlan: ['BOTH' as TiffinMealPlan],
+      joinDate: [this.todayIso()],
+      dueDate: [this.nextMonthIso()],
+      monthlyFee: [0],
+      deliveryAssignee: [''],
+      deliveryPhone: [''],
+    }),
     payment: this.fb.group({
       cabinInitial: [0],
       pgInitial: [0],
+      tiffinInitial: [0],
       transactionRef: [''],
       paymentDate: [this.todayIso()],
       notes: [''],
@@ -878,6 +1037,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   get personalGroup() { return this.form.get('personal') as FormGroup; }
   get cabinGroup()    { return this.form.get('cabin') as FormGroup; }
   get pgGroup()       { return this.form.get('pgRoom') as FormGroup; }
+  get tiffinGroup()   { return this.form.get('tiffin') as FormGroup; }
   get paymentGroup()  { return this.form.get('payment') as FormGroup; }
   get docsGroup()     { return this.form.get('documents') as FormGroup; }
 
@@ -938,15 +1098,18 @@ export class StudentFormComponent implements OnInit, OnDestroy {
 
   hasCabin = computed(() => this.accomType() === 'CABIN_ONLY' || this.accomType() === 'BOTH');
   hasPg    = computed(() => this.accomType() === 'PG_ONLY'    || this.accomType() === 'BOTH');
+  hasTiffin = computed(() => this.tiffinActive());
 
   cabinFee     = computed(() => this.hasCabin() ? Number(this.cabinGroup.value.monthlyFee || 0) : 0);
   pgFee        = computed(() => this.hasPg() ? Number(this.pgGroup.value.monthlyFee || 0) : 0);
-  totalMonthly = computed(() => this.cabinFee() + this.pgFee());
+  tiffinFee    = computed(() => this.hasTiffin() ? Number(this.tiffinGroup.value.monthlyFee || 0) : 0);
+  totalMonthly = computed(() => this.cabinFee() + this.pgFee() + this.tiffinFee());
   totalInitial = computed(() => {
     const v = this.paymentGroup.value;
     const cabin = this.hasCabin() ? Number(v.cabinInitial || 0) : 0;
     const pg    = this.hasPg()    ? Number(v.pgInitial    || 0) : 0;
-    return cabin + pg;
+    const tiffin = this.hasTiffin() ? Number(v.tiffinInitial || 0) : 0;
+    return cabin + pg + tiffin;
   });
 
   trackStep(_: number, s: StepDef) { return s.key; }
@@ -970,9 +1133,10 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       error: () => { /* ignore */ },
     });
 
-    // When the tenant doesn't have PG enabled, there's only one accommodation type —
-    // preselect Cabin so registration flows straight through without a PG choice.
-    if (!this.pgEnabled()) this.setAccomType('CABIN_ONLY');
+    // When the tenant has neither PG nor Tiffin, Cabin is the only option —
+    // preselect it so registration flows straight through. With Tiffin (or PG)
+    // available, leave the choice open so "Tiffin only" is reachable.
+    if (!this.pgEnabled() && !this.tiffinEnabled()) this.setAccomType('CABIN_ONLY');
 
     const paramId = this.route.snapshot.paramMap.get('id');
     if (paramId && paramId !== 'new') {
@@ -1026,6 +1190,15 @@ export class StudentFormComponent implements OnInit, OnDestroy {
     if (t === 'PG_ONLY') this.cabinGroup.reset({ seatId: '', shift: Shift.FULL_DAY, joinDate: this.todayIso(), dueDate: this.nextMonthIso(), monthlyFee: 0 });
     if (t === 'CABIN_ONLY') this.pgGroup.reset({ roomId: '', bedNumber: 1, joinDate: this.todayIso(), dueDate: this.nextMonthIso(), monthlyFee: 0 });
   }
+  /** Card click: pick the type, or unpick it (so a student can take Tiffin only). */
+  toggleAccomType(t: AccomType) {
+    if (this.accomType() === t) this.accomType.set(null);
+    else this.setAccomType(t);
+  }
+  /** Turn the Tiffin add-on on/off. */
+  toggleTiffin() {
+    this.tiffinActive.update((v) => !v);
+  }
   setPayMethod(m: PayMethod) {
     this.payMethod.set(m);
     if (m === 'CASH') this.paymentGroup.patchValue({ transactionRef: '' });
@@ -1039,6 +1212,44 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       this.cabinGroup.patchValue({ monthlyFee: fee });
       this.paymentGroup.patchValue({ cabinInitial: fee });
     }
+  }
+
+  /** Mirror the typed tiffin monthly fee into the initial-payment field (manual, no rate card). */
+  onTiffinFeeChange() {
+    const fee = Number(this.tiffinGroup.value.monthlyFee || 0);
+    this.paymentGroup.patchValue({ tiffinInitial: fee });
+  }
+
+  // ----- Part-payment helpers (plain methods so the balance updates live as staff type) -----
+  feeOf(svc: 'cabin' | 'pg' | 'tiffin'): number {
+    if (svc === 'cabin')  return this.hasCabin()  ? Number(this.cabinGroup.value.monthlyFee  || 0) : 0;
+    if (svc === 'pg')     return this.hasPg()     ? Number(this.pgGroup.value.monthlyFee     || 0) : 0;
+    return this.hasTiffin() ? Number(this.tiffinGroup.value.monthlyFee || 0) : 0;
+  }
+  paidNow(svc: 'cabin' | 'pg' | 'tiffin'): number {
+    const v = this.paymentGroup.value as any;
+    return Number((svc === 'cabin' ? v.cabinInitial : svc === 'pg' ? v.pgInitial : v.tiffinInitial) || 0);
+  }
+  balanceOf(svc: 'cabin' | 'pg' | 'tiffin'): number {
+    return Math.max(0, this.feeOf(svc) - this.paidNow(svc));
+  }
+  /** Surplus paid over the fee for a service (advance/credit). */
+  advanceOf(svc: 'cabin' | 'pg' | 'tiffin'): number {
+    return Math.max(0, this.paidNow(svc) - this.feeOf(svc));
+  }
+  totalBalanceDue(): number {
+    return this.balanceOf('cabin') + this.balanceOf('pg') + this.balanceOf('tiffin');
+  }
+  /** Net signed balance across services: >0 due, <0 advance. */
+  netBalance(): number {
+    return this.totalMonthly() - this.totalInitial();
+  }
+  /** Quick "pay full" — set the service's initial payment to its monthly fee. */
+  payFull(svc: 'cabin' | 'pg' | 'tiffin') {
+    const fee = this.feeOf(svc);
+    if (svc === 'cabin')  this.paymentGroup.patchValue({ cabinInitial: fee });
+    else if (svc === 'pg') this.paymentGroup.patchValue({ pgInitial: fee });
+    else this.paymentGroup.patchValue({ tiffinInitial: fee });
   }
 
   onPgRoomChange() {
@@ -1073,7 +1284,8 @@ export class StudentFormComponent implements OnInit, OnDestroy {
     const step = this.currentStep();
     if (step === 0) return this.personalGroup.valid;
     if (step === 1) {
-      if (!this.accomType()) return false;
+      // At least one service must be chosen — accommodation, tiffin, or both.
+      if (!this.accomType() && !this.hasTiffin()) return false;
       if (this.hasCabin()) {
         const c = this.cabinGroup.value;
         if (!c.seatId || !c.shift || !c.joinDate || !c.dueDate || !c.monthlyFee) return false;
@@ -1081,6 +1293,10 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       if (this.hasPg()) {
         const p = this.pgGroup.value;
         if (!p.roomId || !p.bedNumber || !p.joinDate || !p.dueDate || !p.monthlyFee) return false;
+      }
+      if (this.hasTiffin()) {
+        const t = this.tiffinGroup.value;
+        if (!t.mealType || !t.mealPlan || !t.joinDate || !t.dueDate || !t.monthlyFee) return false;
       }
       return true;
     }
@@ -1090,6 +1306,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       if (this.payMethod() !== 'CASH' && !p.transactionRef) return false;
       if (this.hasCabin() && p.cabinInitial == null) return false;
       if (this.hasPg() && p.pgInitial == null) return false;
+      if (this.hasTiffin() && p.tiffinInitial == null) return false;
       return true;
     }
     return true; // Step 4 (documents) is fully optional.
@@ -1288,6 +1505,9 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       aadhaarBackUrl: docs.aadhaarBackUrl || undefined,
       voterIdUrl: docs.voterIdUrl || undefined,
       status: asDraft ? StudentStatus.PENDING : undefined,
+      // Signed opening balance: positive = part-payment shortfall (due),
+      // negative = advance/credit when more than the fees is collected.
+      outstandingBalance: asDraft ? undefined : (this.totalMonthly() - this.totalInitial()),
     };
 
     this.api.create(studentPayload).pipe(
@@ -1345,6 +1565,24 @@ export class StudentFormComponent implements OnInit, OnDestroy {
           .catch((e) => ({ kind: 'pg', ok: false, error: e?.error?.message ?? 'Could not allocate PG bed' })),
       );
     }
+    if (this.hasTiffin()) {
+      const t = this.tiffinGroup.value;
+      accomTasks.push(
+        this.tiffinApi.create({
+          studentId: student.id,
+          branchId: student.branchId,
+          mealType: t.mealType as TiffinMealType,
+          mealPlan: t.mealPlan as TiffinMealPlan,
+          monthlyRate: Number(t.monthlyFee),
+          startDate: t.joinDate!,
+          nextDueDate: t.dueDate || undefined,
+          deliveryAssignee: t.deliveryAssignee || undefined,
+          deliveryPhone: t.deliveryPhone || undefined,
+        }).toPromise()
+          .then(() => ({ kind: 'tiffin', ok: true }))
+          .catch((e) => ({ kind: 'tiffin', ok: false, error: e?.error?.message ?? 'Could not create tiffin subscription' })),
+      );
+    }
 
     const accomDone = accomTasks.length === 0 ? Promise.resolve([]) : Promise.all(accomTasks);
 
@@ -1383,6 +1621,20 @@ export class StudentFormComponent implements OnInit, OnDestroy {
           }).toPromise()
             .then(() => ({ kind: 'pgPay', ok: true }))
             .catch((e) => ({ kind: 'pgPay', ok: false, error: e?.error?.message ?? 'Could not record PG payment' })),
+        );
+      }
+      if (this.hasTiffin() && Number(pay.tiffinInitial) > 0) {
+        payTasks.push(
+          this.paymentsApi.recordManual({
+            studentId: student.id,
+            branchId: student.branchId,
+            amount: Number(pay.tiffinInitial),
+            method: payMethodMap[this.payMethod()],
+            notes: note ? `[Tiffin] ${note}` : '[Tiffin initial payment]',
+            nextDueDate: this.tiffinGroup.value.dueDate || undefined,
+          }).toPromise()
+            .then(() => ({ kind: 'tiffinPay', ok: true }))
+            .catch((e) => ({ kind: 'tiffinPay', ok: false, error: e?.error?.message ?? 'Could not record tiffin payment' })),
         );
       }
       const payDone = payTasks.length === 0 ? Promise.resolve([]) : Promise.all(payTasks);

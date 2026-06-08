@@ -1,5 +1,6 @@
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
@@ -21,7 +22,7 @@ interface AttendanceRow {
 @Component({
   selector: 'lms-student-profile',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="max-w-6xl mx-auto">
       <!-- Header -->
@@ -59,6 +60,23 @@ interface AttendanceRow {
                 <code class="bg-base-200 px-1.5 py-0.5 rounded">{{ s.code }}</code>
                 · {{ s.phone }}
               </p>
+            </div>
+            <div class="text-right rounded-xl px-4 py-2 border"
+                 [ngClass]="s.outstandingBalance > 0 ? 'bg-error bg-opacity-10 border-error border-opacity-30'
+                          : s.outstandingBalance < 0 ? 'bg-success bg-opacity-10 border-success border-opacity-30'
+                          : 'bg-base-200 border-base-300'">
+              <div class="text-[11px] uppercase tracking-wider opacity-60">
+                {{ s.outstandingBalance > 0 ? 'Balance due' : s.outstandingBalance < 0 ? 'Advance / credit' : 'Account settled' }}
+              </div>
+              <div class="text-xl font-bold"
+                   [class.text-error]="s.outstandingBalance > 0" [class.text-success]="s.outstandingBalance < 0">
+                ₹{{ (s.outstandingBalance < 0 ? -s.outstandingBalance : s.outstandingBalance) | number }}
+              </div>
+              <button class="btn btn-xs mt-1"
+                      [class.btn-error]="s.outstandingBalance > 0" [class.btn-success]="s.outstandingBalance <= 0"
+                      (click)="openSettle()">
+                💰 {{ s.outstandingBalance > 0 ? 'Collect' : 'Add payment' }}
+              </button>
             </div>
           </div>
         </div>
@@ -280,6 +298,49 @@ interface AttendanceRow {
         </div>
       </div>
     </dialog>
+
+    <!-- Settle balance -->
+    <dialog class="modal" [class.modal-open]="settleOpen()">
+      <div class="modal-box max-w-sm" *ngIf="student() as s">
+        <h3 class="font-bold text-lg">💰 {{ s.outstandingBalance > 0 ? 'Collect balance' : 'Add advance payment' }}</h3>
+        <p class="text-sm opacity-70 mt-1" *ngIf="s.outstandingBalance > 0">
+          Outstanding for <strong>{{ s.fullName }}</strong>: <span class="text-error font-semibold">₹{{ s.outstandingBalance | number }}</span>
+        </p>
+        <p class="text-sm opacity-70 mt-1" *ngIf="s.outstandingBalance < 0">
+          <strong>{{ s.fullName }}</strong> has <span class="text-success font-semibold">₹{{ -s.outstandingBalance | number }}</span> advance. Any amount adds more credit.
+        </p>
+        <p class="text-sm opacity-70 mt-1" *ngIf="s.outstandingBalance === 0">
+          No dues for <strong>{{ s.fullName }}</strong>. Collecting now is stored as advance/credit.
+        </p>
+        <label class="form-control mt-3">
+          <div class="label py-1"><span class="label-text">Amount collecting now (₹)</span></div>
+          <input class="input input-bordered input-sm" type="number" min="1" [(ngModel)]="settleAmount" />
+          <div class="label py-0.5" *ngIf="settleAmount > 0">
+            <span class="label-text-alt">After this:
+              <ng-container *ngIf="(s.outstandingBalance - settleAmount) > 0">₹{{ (s.outstandingBalance - settleAmount) | number }} still due</ng-container>
+              <ng-container *ngIf="(s.outstandingBalance - settleAmount) < 0" class="text-success">₹{{ (settleAmount - s.outstandingBalance) | number }} advance</ng-container>
+              <ng-container *ngIf="(s.outstandingBalance - settleAmount) === 0">fully settled</ng-container>
+            </span>
+          </div>
+        </label>
+        <label class="form-control mt-2">
+          <div class="label py-1"><span class="label-text">Method</span></div>
+          <select class="select select-bordered select-sm" [(ngModel)]="settleMethod">
+            <option value="CASH">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="NETBANKING">Bank transfer</option>
+            <option value="CARD">Card</option>
+          </select>
+        </label>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="settleOpen.set(false)">Cancel</button>
+          <button class="btn btn-success" [disabled]="settling() || settleAmount < 1" (click)="doSettle()">
+            <span *ngIf="settling()" class="loading loading-spinner loading-sm"></span> Collect
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="settleOpen.set(false)">close</button></form>
+    </dialog>
   `,
 })
 export class StudentProfileComponent implements OnInit, OnDestroy {
@@ -303,6 +364,10 @@ export class StudentProfileComponent implements OnInit, OnDestroy {
   lightbox = signal<string | null>(null);
   resetting = signal(false);
   resetResult = signal<{ studentId: string; tempPassword: string } | null>(null);
+  settleOpen = signal(false);
+  settling = signal(false);
+  settleAmount = 0;
+  settleMethod = 'CASH';
   savingPhoto = signal(false);
   webcamOpen = signal(false);
   private mediaStream: MediaStream | null = null;
@@ -343,6 +408,35 @@ export class StudentProfileComponent implements OnInit, OnDestroy {
   }
   comingSoon() {
     this.toast.info('Biometric enrollment — integration coming soon. Contact Support to enable.');
+  }
+
+  openSettle() {
+    const bal = this.student()?.outstandingBalance ?? 0;
+    this.settleAmount = bal > 0 ? bal : 0;
+    this.settleMethod = 'CASH';
+    this.settleOpen.set(true);
+  }
+  doSettle() {
+    const s = this.student();
+    if (!s || this.settleAmount < 1) return;
+    this.settling.set(true);
+    this.api.settleBalance(s.id, { amount: this.settleAmount, method: this.settleMethod }).subscribe({
+      next: (r) => {
+        this.settling.set(false);
+        this.settleOpen.set(false);
+        this.student.set({ ...s, outstandingBalance: r.outstandingBalance });
+        const b = r.outstandingBalance;
+        const state = b > 0 ? `₹${b.toLocaleString('en-IN')} still due`
+          : b < 0 ? `₹${(-b).toLocaleString('en-IN')} advance`
+          : 'account settled';
+        this.toast.success(`Recorded ₹${r.applied.toLocaleString('en-IN')} · ${state}`);
+        this.paymentsApi.studentSummary(s.id).subscribe({ next: (sum) => this.summary.set(sum), error: () => undefined });
+      },
+      error: (err) => {
+        this.settling.set(false);
+        this.toast.error(err?.error?.message ?? 'Could not collect balance');
+      },
+    });
   }
 
   resetPassword() {

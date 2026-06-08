@@ -6,6 +6,7 @@ import { RAZORPAY_SERVICE, RazorpayService } from '../integrations/razorpay.serv
 import { WHATSAPP_SERVICE, WhatsAppService } from '../integrations/whatsapp.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { SeatAssignmentsService } from '../seat-assignments/seat-assignments.service';
+import { EmailService } from '../email/email.service';
 import { CreatePaymentDto, RazorpayCreateOrderDto, RazorpayVerifyDto } from './dto/payment.dto';
 import { FeatureKey, PaymentStatus, PaymentMethod } from '@lms/shared';
 
@@ -17,9 +18,40 @@ export class PaymentsService {
     private audit: AuditService,
     private featureFlags: FeatureFlagsService,
     private seatAssignments: SeatAssignmentsService,
+    private email: EmailService,
     @Inject(RAZORPAY_SERVICE) private razorpay: RazorpayService,
     @Inject(WHATSAPP_SERVICE) private whatsapp: WhatsAppService,
   ) {}
+
+  /** Email a payment receipt to the student via the tenant's configured provider. */
+  async emailReceipt(id: string) {
+    const tenantId = this.tenantCtx.tenantId;
+    const payment = await this.prisma.payment.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      include: { student: true, tenant: { select: { name: true } } },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (!payment.student.email) throw new BadRequestException('This student has no email on file');
+    const res = await this.email.sendTemplate({
+      tenantId,
+      to: payment.student.email,
+      template: 'PAYMENT_RECEIPT',
+      data: {
+        orgName: payment.tenant.name,
+        fullName: payment.student.fullName,
+        amount: Number(payment.amount),
+        method: payment.method,
+        receiptNo: payment.receiptNumber ?? payment.id.slice(0, 8).toUpperCase(),
+        date: (payment.paidAt ?? payment.createdAt).toLocaleString('en-IN'),
+      },
+    });
+    if (!res.ok) {
+      throw new BadRequestException(
+        res.skipped ? 'Email is not enabled for this tenant (ask SuperAdmin to configure it).' : (res.error || 'Could not send email'),
+      );
+    }
+    return { ok: true };
+  }
 
   async list(opts: {
     branchId?: string;
@@ -224,6 +256,20 @@ export class PaymentsService {
           status: { in: ['TEMPORARY', 'CONFIRMED'] },
         },
         data: { nextDueDate: new Date(dto.nextDueDate) },
+      });
+    }
+
+    // Optionally apply to the student's account balance: clears due, surplus → advance.
+    if (dto.applyToAccount) {
+      const student = await this.prisma.student.findFirst({
+        where: { id: dto.studentId, tenantId },
+        select: { outstandingBalance: true },
+      });
+      const current = Number((student as any)?.outstandingBalance ?? 0);
+      const newBalance = Number((current - dto.amount).toFixed(2));
+      await this.prisma.student.update({
+        where: { id: dto.studentId },
+        data: { outstandingBalance: newBalance },
       });
     }
 

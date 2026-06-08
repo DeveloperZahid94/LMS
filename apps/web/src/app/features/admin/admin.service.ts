@@ -24,6 +24,24 @@ export interface CreateTenantPayload {
   adminPassword: string;
 }
 
+export interface EmailConfig {
+  provider: 'NONE' | 'BREVO' | 'SENDGRID';
+  fromEmail: string;
+  fromName: string;
+  enabled: boolean;
+  brevoKeySet: boolean;
+  sendgridKeySet: boolean;
+}
+
+export interface EmailConfigPayload {
+  provider: 'NONE' | 'BREVO' | 'SENDGRID';
+  brevoApiKey?: string;
+  sendgridApiKey?: string;
+  fromEmail?: string;
+  fromName?: string;
+  enabled?: boolean;
+}
+
 export interface AuditQueryParams {
   tenantId?: string;
   method?: string;
@@ -65,6 +83,17 @@ export class AdminApiService {
       `${this.base}/tenants/${tenantId}/users/${userId}/active`,
       { isActive },
     );
+  }
+
+  // ----- Email integration -----
+  getEmailConfig(tenantId: string) {
+    return this.http.get<EmailConfig>(`${this.base}/tenants/${tenantId}/email-config`);
+  }
+  saveEmailConfig(tenantId: string, dto: EmailConfigPayload) {
+    return this.http.put<EmailConfig>(`${this.base}/tenants/${tenantId}/email-config`, dto);
+  }
+  sendTestEmail(tenantId: string, to: string) {
+    return this.http.post<{ ok: boolean; provider?: string }>(`${this.base}/tenants/${tenantId}/email-config/test`, { to });
   }
 
   // ----- Feature flags (reuses the existing feature-flags API) -----
