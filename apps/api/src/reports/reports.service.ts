@@ -68,6 +68,11 @@ export class ReportsService {
     const outstanding = Math.max(0, totals.expected - totals.collected);
     const coverage = totals.expected > 0 ? (totals.collected / totals.expected) * 100 : 0;
 
+    // Headline cash collected = ALL PAID (non-deleted) payments in the window — the same
+    // basis as P&L income and Income-by-source, so the three figures tie. (Outstanding &
+    // coverage above intentionally use the active-roster collected — a different question.)
+    const collectedCash = await this.collectedInRange(opts);
+
     // Comparison: same-length window immediately prior.
     const prev = await this.previousPeriodCollections(opts);
     const deltaPct = (curr: number, prior: number): number | null => {
@@ -81,7 +86,7 @@ export class ReportsService {
       branchId: opts.branchId ?? null,
       kpis: {
         totalExpected: round2(totals.expected),
-        totalCollected: round2(totals.collected),
+        totalCollected: round2(collectedCash),
         totalPending: round2(totals.pending),
         outstanding: round2(outstanding),
         coveragePct: round2(coverage),
@@ -95,8 +100,8 @@ export class ReportsService {
         previousTo: prev.dateTo,
         previousCollected: round2(prev.collected),
         previousTransactions: prev.transactions,
-        collectedDeltaAmount: round2(totals.collected - prev.collected),
-        collectedDeltaPct: deltaPct(totals.collected, prev.collected),
+        collectedDeltaAmount: round2(collectedCash - prev.collected),
+        collectedDeltaPct: deltaPct(collectedCash, prev.collected),
         transactionsDeltaPct: deltaPct(students.reduce((n, s) => n + s.paymentCount, 0), prev.transactions),
       },
       topPayers: students
@@ -138,6 +143,7 @@ export class ReportsService {
     const where: any = {
       tenantId,
       status: 'PAID',
+      deletedAt: null,
       ...(opts.branchId && { branchId: opts.branchId }),
       OR: [
         { paidAt: { gte: prevFrom, lte: prevTo } },
@@ -154,6 +160,27 @@ export class ReportsService {
       collected: Number(agg._sum.amount ?? 0),
       transactions: count,
     };
+  }
+
+  /** Total PAID (non-deleted) cash collected in [dateFrom, dateTo] — same basis as P&L. */
+  private async collectedInRange(opts: { dateFrom: string; dateTo: string; branchId?: string }) {
+    const tenantId = this.tenantCtx.tenantId;
+    const from = new Date(opts.dateFrom + 'T00:00:00.000Z');
+    const to   = new Date(opts.dateTo   + 'T23:59:59.999Z');
+    const agg = await this.prisma.payment.aggregate({
+      where: {
+        tenantId,
+        status: 'PAID',
+        deletedAt: null,
+        ...(opts.branchId && { branchId: opts.branchId }),
+        OR: [
+          { paidAt: { gte: from, lte: to } },
+          { paidAt: null, createdAt: { gte: from, lte: to } },
+        ],
+      },
+      _sum: { amount: true },
+    });
+    return Number(agg._sum.amount ?? 0);
   }
 
   async aging(opts: { branchId?: string }) {
@@ -270,6 +297,149 @@ export class ReportsService {
       totalAmount: Number(r.total_amount ?? 0),
       pctOfTotal: Number(r.pct_of_total ?? 0),
     }));
+  }
+
+  /**
+   * Profit & Loss: income (cash actually received = PAID payments) vs expenses,
+   * bucketed per period, plus an expense-by-category breakdown for the range.
+   */
+  async profitLoss(opts: { dateFrom: string; dateTo: string; branchId?: string; bucket: Bucket }) {
+    const tenantId = this.tenantCtx.tenantId;
+
+    // Income per bucket — reuse the payments timeseries (paid_amount = cash received).
+    const income = await this.timeseries(opts);
+
+    // Expense per bucket — date_trunc on expenseDate mirrors the payments bucketing.
+    const expRows = await this.prisma.$queryRaw<{ bucket_start: Date; expense_amount: any }[]>`
+      SELECT date_trunc(${opts.bucket}, "expenseDate") AS bucket_start,
+             SUM(amount) AS expense_amount
+      FROM expenses
+      WHERE "tenantId" = ${tenantId}
+        AND (${opts.branchId ?? null}::text IS NULL OR "branchId" = ${opts.branchId ?? null})
+        AND "expenseDate" >= ${opts.dateFrom}::date
+        AND "expenseDate" < (${opts.dateTo}::date + interval '1 day')
+      GROUP BY 1
+      ORDER BY 1
+    `;
+    const expenseByLabel = new Map<string, number>();
+    for (const r of expRows) {
+      expenseByLabel.set(this.bucketLabel(r.bucket_start, opts.bucket), Number(r.expense_amount ?? 0));
+    }
+
+    // Union of buckets in chronological order: income series first, then expense-only buckets.
+    const order: { label: string; sortKey: string }[] = [];
+    const seen = new Set<string>();
+    for (const p of income) {
+      if (!seen.has(p.label)) { seen.add(p.label); order.push({ label: p.label, sortKey: p.bucketStart }); }
+    }
+    for (const r of expRows) {
+      const label = this.bucketLabel(r.bucket_start, opts.bucket);
+      if (!seen.has(label)) { seen.add(label); order.push({ label, sortKey: r.bucket_start.toISOString() }); }
+    }
+    order.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+    const incomeByLabel = new Map(income.map((p) => [p.label, p.paidAmount]));
+    const series = order.map((o) => {
+      const inc = Number(incomeByLabel.get(o.label) ?? 0);
+      const exp = Number(expenseByLabel.get(o.label) ?? 0);
+      return { label: o.label, income: round2(inc), expense: round2(exp), net: round2(inc - exp) };
+    });
+
+    const totalIncome = series.reduce((s, r) => s + r.income, 0);
+    const totalExpense = series.reduce((s, r) => s + r.expense, 0);
+    const net = totalIncome - totalExpense;
+    const marginPct = totalIncome > 0 ? (net / totalIncome) * 100 : 0;
+
+    // Expense breakdown by category for the range.
+    const grouped = await this.prisma.expense.groupBy({
+      by: ['category'],
+      where: {
+        tenantId,
+        ...(opts.branchId && { branchId: opts.branchId }),
+        expenseDate: {
+          gte: new Date(opts.dateFrom + 'T00:00:00.000'),
+          lte: new Date(opts.dateTo + 'T23:59:59.999'),
+        },
+      },
+      _sum: { amount: true },
+      _count: { _all: true },
+    });
+    const catTotal = grouped.reduce((s, g) => s + Number(g._sum.amount ?? 0), 0);
+    const byCategory = grouped
+      .map((g) => ({
+        category: g.category as string,
+        amount: round2(Number(g._sum.amount ?? 0)),
+        count: g._count._all,
+        pctOfTotal: catTotal > 0 ? round2((Number(g._sum.amount ?? 0) / catTotal) * 100) : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    return {
+      totals: { income: round2(totalIncome), expense: round2(totalExpense), net: round2(net), marginPct: round2(marginPct) },
+      series,
+      byCategory,
+    };
+  }
+
+  /**
+   * Income split by business line for the range, derived from PAID payment note tags:
+   *   [Cabin…] → Cabin/Seat · [PG…] → PG Rooms · [Tiffin…] → Tiffin ·
+   *   [Balance…]/[Advance…] → general account settlement · anything else → Other.
+   */
+  async incomeBySource(opts: { dateFrom: string; dateTo: string; branchId?: string }) {
+    const tenantId = this.tenantCtx.tenantId;
+    const from = new Date(opts.dateFrom + 'T00:00:00.000Z');
+    const to   = new Date(opts.dateTo   + 'T23:59:59.999Z');
+    const where: any = {
+      tenantId,
+      status: 'PAID',
+      deletedAt: null,
+      ...(opts.branchId && { branchId: opts.branchId }),
+      OR: [
+        { paidAt: { gte: from, lte: to } },
+        { paidAt: null, createdAt: { gte: from, lte: to } },
+      ],
+    };
+    const rows = await this.prisma.payment.findMany({ where, select: { amount: true, notes: true } });
+
+    const acc: Record<string, { amount: number; count: number }> = {};
+    for (const r of rows) {
+      const src = this.classifyIncome(r.notes);
+      if (!acc[src]) acc[src] = { amount: 0, count: 0 };
+      acc[src].amount += Number(r.amount ?? 0);
+      acc[src].count += 1;
+    }
+    const total = Object.values(acc).reduce((s, v) => s + v.amount, 0);
+    const order = ['CABIN', 'PG', 'TIFFIN', 'BALANCE', 'OTHER'];
+    const bySource = order
+      .filter((k) => acc[k])
+      .map((k) => ({
+        source: k,
+        label: this.incomeSourceLabel(k),
+        amount: round2(acc[k].amount),
+        count: acc[k].count,
+        pctOfTotal: total > 0 ? round2((acc[k].amount / total) * 100) : 0,
+      }));
+    return { bySource, total: round2(total) };
+  }
+
+  private classifyIncome(notes: string | null): string {
+    const n = (notes ?? '').trim();
+    if (n.startsWith('[Tiffin')) return 'TIFFIN';
+    if (n.startsWith('[PG')) return 'PG';
+    if (n.startsWith('[Cabin')) return 'CABIN';
+    if (n.startsWith('[Balance') || n.startsWith('[Advance')) return 'BALANCE';
+    return 'OTHER';
+  }
+
+  private incomeSourceLabel(k: string): string {
+    switch (k) {
+      case 'CABIN':   return 'Cabin / Seat';
+      case 'PG':      return 'PG Rooms';
+      case 'TIFFIN':  return 'Tiffin';
+      case 'BALANCE': return 'Account / Balance';
+      default:        return 'Other / Untagged';
+    }
   }
 
   private bucketLabel(d: Date, bucket: Bucket): string {

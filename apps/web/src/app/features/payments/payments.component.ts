@@ -25,6 +25,19 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
   NETBANKING: 'Net banking', RAZORPAY: 'Razorpay link', OTHER: 'Other',
 };
 
+// What the payment is for — prefixes the notes with a tag so Reports → "Income by
+// source" can split collections. Matches the tags the registration form already writes.
+type PaymentSource = 'CABIN' | 'PG' | 'TIFFIN' | 'GENERAL';
+const SOURCES: { value: PaymentSource; label: string }[] = [
+  { value: 'CABIN',   label: 'Cabin / Seat' },
+  { value: 'PG',      label: 'PG Room' },
+  { value: 'TIFFIN',  label: 'Tiffin' },
+  { value: 'GENERAL', label: 'General / Other' },
+];
+const SOURCE_TAG: Record<PaymentSource, string> = {
+  CABIN: '[Cabin]', PG: '[PG]', TIFFIN: '[Tiffin]', GENERAL: '',
+};
+
 @Component({
   selector: 'lms-payments',
   standalone: true,
@@ -94,7 +107,10 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
                 <div class="font-medium">{{ p.student.fullName }}</div>
                 <div class="opacity-60 text-xs">{{ p.student.code }} · {{ p.student.phone }}</div>
               </td>
-              <td class="text-right font-medium">₹{{ p.amount | number }}</td>
+              <td class="text-right font-medium">
+                ₹{{ p.amount | number }}
+                <div *ngIf="(p.discount ?? 0) > 0" class="text-xs font-normal text-warning" [title]="p.discountReason || 'Discount'">−₹{{ p.discount | number }} disc</div>
+              </td>
               <td class="text-right" [class.text-error]="(p.balance ?? 0) > 0" [class.opacity-50]="(p.balance ?? 0) === 0">
                 {{ p.monthlyFee ? ('₹' + (p.balance | number)) : '—' }}
               </td>
@@ -149,14 +165,15 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
 
     <!-- ============================================ RECORD PAYMENT MODAL ================================ -->
     <dialog class="modal" [class.modal-open]="modalOpen()">
-      <div class="modal-box max-w-lg max-h-[90vh] overflow-y-auto">
+      <div class="modal-box max-w-2xl">
         <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="closeModal()">✕</button></form>
         <h3 class="font-bold text-lg">Record payment</h3>
-        <p class="text-sm opacity-60">Student-side payments and offline cash receipts.</p>
+        <p class="text-sm opacity-60 mb-3">Offline cash receipts & student-side payments. Allocations auto-confirm at ≥ 50% paid.</p>
 
-        <form [formGroup]="form" (ngSubmit)="submit()" class="space-y-3 mt-3">
+        <form [formGroup]="form" (ngSubmit)="submit()" class="space-y-3">
+          <!-- Student -->
           <div class="form-control">
-            <div class="label py-1"><span class="label-text">Student *</span></div>
+            <div class="label py-0.5"><span class="label-text text-sm">Student *</span></div>
             <lms-searchable-select
                 [items]="studentItems()"
                 placeholder="Pick a student"
@@ -165,84 +182,84 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
             </lms-searchable-select>
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
+          <!-- Payment for — segmented, tags the payment for income-source reporting -->
+          <div class="form-control">
+            <div class="label py-0.5"><span class="label-text text-sm">Payment for *</span></div>
+            <div class="join w-full">
+              <button type="button" *ngFor="let s of sources" class="join-item btn btn-sm flex-1 normal-case"
+                      [class.btn-primary]="form.value.source === s.value"
+                      (click)="form.patchValue({ source: s.value })">{{ s.label }}</button>
+            </div>
+          </div>
+
+          <!-- Amount / Discount / Method / Branch -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <label class="form-control">
-              <div class="label py-1"><span class="label-text">Amount (₹) *</span></div>
-              <input class="input input-bordered" type="number" min="1" step="1" formControlName="amount" placeholder="0" />
+              <div class="label py-0.5"><span class="label-text text-sm">Amount (₹) *</span></div>
+              <input class="input input-bordered input-sm" type="number" min="1" step="1" formControlName="amount" placeholder="0" />
             </label>
             <label class="form-control">
-              <div class="label py-1"><span class="label-text">Branch *</span></div>
-              <select class="select select-bordered" formControlName="branchId">
-                <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+              <div class="label py-0.5">
+                <span class="label-text text-sm">Discount (₹)</span>
+              </div>
+              <input class="input input-bordered input-sm" type="number" min="0" step="1" formControlName="discount" placeholder="0" />
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Method *</span></div>
+              <select class="select select-bordered select-sm" formControlName="method">
+                <option *ngFor="let m of methods" [value]="m">{{ labelFor(m) }}</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Branch *</span></div>
+              <select class="select select-bordered select-sm" formControlName="branchId">
+                <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }}</option>
               </select>
             </label>
           </div>
 
-          <!-- Carried account balance (due / advance) for the selected student -->
-          <div *ngIf="selectedBalance() !== 0" class="text-xs rounded-lg p-2"
-               [ngClass]="selectedBalance() > 0 ? 'bg-error bg-opacity-10' : 'bg-success bg-opacity-10'">
-            <div class="flex items-center justify-between">
-              <span *ngIf="selectedBalance() > 0">Outstanding balance carried: <strong class="text-error">₹{{ selectedBalance() | number }}</strong></span>
-              <span *ngIf="selectedBalance() < 0">Advance / credit on account: <strong class="text-success">₹{{ -selectedBalance() | number }}</strong></span>
+          <!-- Discount reason (only when a discount is entered) -->
+          <label class="form-control" *ngIf="discountAmount() > 0">
+            <div class="label py-0.5">
+              <span class="label-text text-sm">Discount reason</span>
+              <span class="label-text-alt opacity-50 text-xs">why this concession was given</span>
             </div>
-            <label class="flex items-center gap-2 mt-1 cursor-pointer">
-              <input type="checkbox" class="checkbox checkbox-xs" formControlName="applyToAccount" />
-              <span>Apply this payment to the account balance (settle due / add advance)</span>
+            <input class="input input-bordered input-sm" formControlName="discountReason" placeholder="e.g. sibling discount, scholarship, festive offer" />
+          </label>
+
+          <!-- Reference / Next due -->
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Reference / notes</span></div>
+              <input class="input input-bordered input-sm" formControlName="notes" placeholder="UPI txn id, receipt # (optional)" />
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5">
+                <span class="label-text text-sm">Next due on</span>
+                <span class="label-text-alt opacity-50 text-xs">updates alerts</span>
+              </div>
+              <input class="input input-bordered input-sm" type="date" formControlName="nextDueDate" />
             </label>
           </div>
-          <label *ngIf="selectedBalance() === 0" class="flex items-center gap-2 text-xs cursor-pointer">
-            <input type="checkbox" class="checkbox checkbox-xs" formControlName="applyToAccount" />
-            <span>Record as advance / account credit</span>
-          </label>
 
-          <!-- Live balance for the selected student -->
-          <div *ngIf="selectedSummary() as ss" class="text-xs rounded-lg bg-base-200 p-2 flex flex-wrap gap-x-4 gap-y-1">
+          <!-- Live balance for the selected student (compact) -->
+          <div *ngIf="selectedSummary() as ss" class="text-xs rounded-lg bg-base-200 px-3 py-2 flex flex-wrap gap-x-4 gap-y-1">
             <span>Monthly fee: <strong>₹{{ ss.monthlyTotal | number }}</strong></span>
             <span>Paid so far: <strong>₹{{ ss.totalPaid | number }}</strong></span>
-            <span>Balance after this payment:
-              <strong [class.text-error]="balanceAfter() > 0" [class.text-success]="balanceAfter() === 0">₹{{ balanceAfter() | number }}</strong>
-            </span>
+            <span *ngIf="discountAmount() > 0">Discount: <strong class="text-warning">−₹{{ discountAmount() | number }}</strong></span>
+            <span>After this: <strong [class.text-error]="balanceAfter() > 0" [class.text-success]="balanceAfter() === 0">₹{{ balanceAfter() | number }}</strong></span>
           </div>
 
-          <div class="form-control">
-            <div class="label py-1"><span class="label-text">Method *</span></div>
-            <div class="grid grid-cols-3 gap-2">
-              <label *ngFor="let m of methods"
-                     class="border rounded-lg p-2 cursor-pointer transition-all hover:border-primary text-center text-sm"
-                     [class.border-primary]="form.value.method === m"
-                     [class.bg-primary]="form.value.method === m"
-                     [class.bg-opacity-10]="form.value.method === m"
-                     [class.border-base-300]="form.value.method !== m">
-                <input type="radio" class="hidden" formControlName="method" [value]="m" />
-                <div class="font-medium">{{ labelFor(m) }}</div>
-              </label>
-            </div>
+          <!-- Carried account balance (info only — every payment now updates it automatically) -->
+          <div *ngIf="selectedBalance() !== 0" class="text-xs rounded-lg px-3 py-2"
+               [ngClass]="selectedBalance() > 0 ? 'bg-error bg-opacity-10' : 'bg-success bg-opacity-10'">
+            <span *ngIf="selectedBalance() > 0">Current balance due: <strong class="text-error">₹{{ selectedBalance() | number }}</strong> — this payment reduces it.</span>
+            <span *ngIf="selectedBalance() < 0">Advance / credit on account: <strong class="text-success">₹{{ -selectedBalance() | number }}</strong></span>
           </div>
 
-          <label class="form-control">
-            <div class="label py-1">
-              <span class="label-text">Reference / notes</span>
-              <span class="label-text-alt opacity-60">e.g. UPI txn id, receipt #</span>
-            </div>
-            <input class="input input-bordered" formControlName="notes" placeholder="(optional)" />
-          </label>
-
-          <label class="form-control">
-            <div class="label py-1">
-              <span class="label-text">Next installment due on</span>
-              <span class="label-text-alt opacity-60">(optional)</span>
-            </div>
-            <input class="input input-bordered" type="date" formControlName="nextDueDate" />
-            <div class="label py-1">
-              <span class="label-text-alt opacity-60">
-                If set, updates the student's active seat allocations so alerts fire on that date.
-              </span>
-            </div>
-          </label>
-
-          <div class="modal-action sticky bottom-0 bg-base-100 pt-3 mt-2 border-t border-base-300">
-            <button type="button" class="btn btn-ghost" (click)="closeModal()">Cancel</button>
-            <button class="btn btn-primary" type="submit" [disabled]="form.invalid || saving()">
+          <div class="modal-action mt-2">
+            <button type="button" class="btn btn-ghost btn-sm" (click)="closeModal()">Cancel</button>
+            <button class="btn btn-primary btn-sm" type="submit" [disabled]="form.invalid || saving()">
               <span *ngIf="saving()" class="loading loading-spinner loading-sm"></span>
               Record payment
             </button>
@@ -317,7 +334,10 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
               <tbody>
                 <tr *ngFor="let h of d.payments" class="hover" [class.bg-base-200]="h.id === p.id">
                   <td class="text-xs">{{ (h.paidAt || h.createdAt) | date:'dd MMM yy, HH:mm' }}</td>
-                  <td class="text-right font-medium">₹{{ h.amount | number }}</td>
+                  <td class="text-right font-medium">
+                    ₹{{ h.amount | number }}
+                    <div *ngIf="(h.discount ?? 0) > 0" class="text-xs font-normal text-warning" [title]="h.discountReason || 'Discount'">−₹{{ h.discount | number }} disc</div>
+                  </td>
                   <td><span class="badge badge-ghost badge-sm">{{ labelFor(h.method) }}</span></td>
                   <td>
                     <span class="badge badge-sm"
@@ -412,10 +432,15 @@ export class PaymentsComponent implements OnInit {
   methods = METHODS;
   labelFor = (m: PaymentMethod) => METHOD_LABELS[m];
 
+  sources = SOURCES;
+
   form = this.fb.group({
     studentId: ['', Validators.required],
     branchId: ['', Validators.required],
     amount: [null as number | null, [Validators.required, Validators.min(1)]],
+    discount: [null as number | null, [Validators.min(0)]],
+    discountReason: [''],
+    source: ['CABIN' as PaymentSource, Validators.required],
     method: [PaymentMethod.CASH, Validators.required],
     notes: [''],
     nextDueDate: [''],
@@ -445,12 +470,17 @@ export class PaymentsComponent implements OnInit {
     });
   }
 
-  /** Balance left on the monthly fee after the amount currently entered. */
+  /** Discount currently entered in the form (never negative). */
+  discountAmount(): number {
+    return Math.max(0, Number(this.form.value.discount) || 0);
+  }
+
+  /** Balance left on the monthly fee after the cash amount + discount currently entered. */
   balanceAfter(): number {
     const ss = this.selectedSummary();
     if (!ss) return 0;
     const amount = Number(this.form.value.amount) || 0;
-    return Math.max(0, ss.monthlyTotal - amount);
+    return Math.max(0, ss.monthlyTotal - amount - this.discountAmount());
   }
 
   reload() {
@@ -619,6 +649,9 @@ export class PaymentsComponent implements OnInit {
       studentId: '',
       branchId: this.branches()[0]?.id ?? '',
       amount: null,
+      discount: null,
+      discountReason: '',
+      source: 'CABIN',
       method: PaymentMethod.CASH,
       notes: '',
       nextDueDate: nextMonth.toISOString().slice(0, 10),
@@ -636,12 +669,19 @@ export class PaymentsComponent implements OnInit {
     if (this.form.invalid) return;
     this.saving.set(true);
     const v = this.form.getRawValue();
+    // Prefix the notes with the source tag so income-by-source reporting can classify it.
+    const tag = SOURCE_TAG[v.source as PaymentSource];
+    const note = (v.notes || '').trim();
+    const notes = tag ? (note ? `${tag} ${note}` : `${tag} payment`) : (note || undefined);
+    const discount = Math.max(0, Number(v.discount) || 0);
     this.api.recordManual({
       studentId: v.studentId!,
       branchId: v.branchId!,
       amount: Number(v.amount),
+      discount: discount > 0 ? discount : undefined,
+      discountReason: discount > 0 ? (v.discountReason?.trim() || undefined) : undefined,
       method: v.method!,
-      notes: v.notes || undefined,
+      notes,
       nextDueDate: v.nextDueDate || undefined,
       applyToAccount: v.applyToAccount || undefined,
     }).subscribe({

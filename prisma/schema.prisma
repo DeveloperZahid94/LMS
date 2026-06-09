@@ -400,6 +400,8 @@ model Payment {
   studentId     String
   enrollmentId  String?
   amount        Decimal  @db.Decimal(10, 2)
+  discount      Decimal  @default(0) @db.Decimal(10, 2) // concession waived alongside this payment (not income)
+  discountReason String?
   currency      String   @default("INR")
   method        PaymentMethod
   status        PaymentStatus @default(PENDING)

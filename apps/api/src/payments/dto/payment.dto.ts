@@ -12,6 +12,16 @@ export class CreatePaymentDto {
   @Min(1)
   amount!: number;
 
+  /** Concession waived alongside the cash amount — reduces dues but is not counted as income. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discount?: number;
+
+  @IsOptional()
+  @IsString()
+  discountReason?: string;
+
   @IsEnum(PaymentMethod)
   method!: PaymentMethod;
 

@@ -98,6 +98,39 @@ export interface MethodBreakdownRow {
   pctOfTotal: number;
 }
 
+export interface PlSeriesPoint {
+  label: string;
+  income: number;
+  expense: number;
+  net: number;
+}
+
+export interface ExpenseCategoryRow {
+  category: string;
+  amount: number;
+  count: number;
+  pctOfTotal: number;
+}
+
+export interface ProfitLoss {
+  totals: { income: number; expense: number; net: number; marginPct: number };
+  series: PlSeriesPoint[];
+  byCategory: ExpenseCategoryRow[];
+}
+
+export interface IncomeSourceRow {
+  source: string;
+  label: string;
+  amount: number;
+  count: number;
+  pctOfTotal: number;
+}
+
+export interface IncomeBySource {
+  bySource: IncomeSourceRow[];
+  total: number;
+}
+
 export interface RangeOpts {
   dateFrom: string;
   dateTo: string;
@@ -133,6 +166,16 @@ export class ReportsApiService {
     let p = new HttpParams();
     if (branchId) p = p.set('branchId', branchId);
     return this.http.get<AgingResponse>(`${this.base}/aging`, { params: p });
+  }
+
+  profitLoss(opts: RangeOpts & { bucket: Bucket }) {
+    return this.http.get<ProfitLoss>(`${this.base}/profit-loss`, {
+      params: this.params(opts).set('bucket', opts.bucket),
+    });
+  }
+
+  incomeBySource(opts: RangeOpts) {
+    return this.http.get<IncomeBySource>(`${this.base}/income-sources`, { params: this.params(opts) });
   }
 
   private params(opts: RangeOpts): HttpParams {

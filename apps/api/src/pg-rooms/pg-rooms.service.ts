@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
+import { BalanceService } from '../balance/balance.service';
 import {
   AssignBedDto, CreatePgRoomDto, PgRoomType, PgRoomsListQueryDto, UpdatePgRoomDto, defaultBedCount,
 } from './dto/pg-room.dto';
@@ -12,6 +13,7 @@ export class PgRoomsService {
     private prisma: PrismaService,
     private tenantCtx: TenantContextService,
     private audit: AuditService,
+    private balance: BalanceService,
   ) {}
 
   // TODO(prisma-client): once `npx prisma generate` is re-run with the new
@@ -234,6 +236,7 @@ export class PgRoomsService {
       tenantId, userId: this.tenantCtx.userId,
       action: 'PG_BED_ASSIGN', entity: 'pg_room_assignments', entityId: created.id, diff: { after: created },
     });
+    await this.balance.recompute(tenantId, dto.studentId);
     return created;
   }
 
@@ -252,6 +255,7 @@ export class PgRoomsService {
       tenantId, userId: this.tenantCtx.userId,
       action: 'PG_BED_UNASSIGN', entity: 'pg_room_assignments', entityId: assignmentId, diff: { before: a, after: updated },
     });
+    await this.balance.recompute(tenantId, a.studentId);
     return updated;
   }
 

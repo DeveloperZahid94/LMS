@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
+import { BalanceService } from '../balance/balance.service';
 import {
   CollectTiffinDto, CreateTiffinSubscriptionDto, PauseTiffinDto, ResumeTiffinDto,
   TiffinListQueryDto, UpdateTiffinSubscriptionDto,
@@ -16,6 +17,7 @@ export class TiffinService {
     private prisma: PrismaService,
     private tenantCtx: TenantContextService,
     private audit: AuditService,
+    private balance: BalanceService,
   ) {}
 
   // `as any` indirection until `npx prisma generate` is re-run with the new
@@ -116,6 +118,7 @@ export class TiffinService {
       tenantId, userId: this.tenantCtx.userId,
       action: 'TIFFIN_SUBSCRIBE', entity: 'tiffin_subscriptions', entityId: created.id, diff: { after: created },
     });
+    await this.balance.recompute(tenantId, dto.studentId);
     return this.shape(created);
   }
 
@@ -163,6 +166,7 @@ export class TiffinService {
       tenantId, userId: this.tenantCtx.userId,
       action: 'TIFFIN_PAUSE', entity: 'tiffin_subscriptions', entityId: id, diff: { pausedAt, reason: dto.reason },
     });
+    await this.balance.recompute(tenantId, sub.studentId);
     return this.get(id);
   }
 
@@ -195,6 +199,7 @@ export class TiffinService {
       tenantId, userId: this.tenantCtx.userId,
       action: 'TIFFIN_RESUME', entity: 'tiffin_subscriptions', entityId: id, diff: { resumedAt, days },
     });
+    await this.balance.recompute(tenantId, sub.studentId);
     return this.get(id);
   }
 
@@ -216,6 +221,7 @@ export class TiffinService {
       tenantId, userId: this.tenantCtx.userId,
       action: 'TIFFIN_END', entity: 'tiffin_subscriptions', entityId: id, diff: { before: a, after: updated },
     });
+    await this.balance.recompute(tenantId, a.studentId);
     return updated;
   }
 
@@ -254,6 +260,7 @@ export class TiffinService {
       action: 'TIFFIN_COLLECT', entity: 'tiffin_subscriptions', entityId: id,
       diff: { amount, paidAmount: newPaid, balance: newBalance, paymentId: payment.id },
     });
+    await this.balance.recompute(tenantId, sub.studentId);
     return this.get(id);
   }
 

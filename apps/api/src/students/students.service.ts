@@ -8,6 +8,7 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { ListStudentsDto } from './dto/list-students.dto';
 import { SettleBalanceDto } from './dto/settle-balance.dto';
+import { BalanceService } from '../balance/balance.service';
 import { PaginatedResponse, PaymentMethod, PaymentStatus } from '@lms/shared';
 
 /** Maps a Prisma "unique constraint" violation to a friendly field name. */
@@ -27,6 +28,7 @@ export class StudentsService {
     private prisma: PrismaService,
     private tenantCtx: TenantContextService,
     private audit: AuditService,
+    private balance: BalanceService,
   ) {}
 
   async list(query: ListStudentsDto): Promise<PaginatedResponse<any>> {
@@ -250,9 +252,9 @@ export class StudentsService {
       },
     });
 
-    // Signed: due shrinks; any surplus becomes advance (negative balance).
-    const newBalance = Number((current - amount).toFixed(2));
-    await this.prisma.student.update({ where: { id }, data: { outstandingBalance: newBalance } });
+    // Balance is derived — recompute from all payments + active accommodations
+    // (the payment just created is now included).
+    const newBalance = await this.balance.recompute(tenantId, id);
     await this.audit.record({
       tenantId,
       userId: this.tenantCtx.userId,

@@ -6,6 +6,8 @@ import { PaymentMethod, PaginatedResponse } from '@lms/shared';
 export interface PaymentRow {
   id: string;
   amount: number;
+  discount?: number;
+  discountReason?: string | null;
   method: PaymentMethod;
   status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   createdAt: string;
@@ -21,6 +23,8 @@ export interface CreatePaymentDto {
   studentId: string;
   branchId: string;
   amount: number;
+  discount?: number;
+  discountReason?: string;
   method: PaymentMethod;
   notes?: string;
   nextDueDate?: string;
@@ -30,6 +34,8 @@ export interface CreatePaymentDto {
 export interface PaymentHistoryItem {
   id: string;
   amount: number;
+  discount?: number;
+  discountReason?: string | null;
   method: PaymentMethod;
   status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paidAt: string | null;

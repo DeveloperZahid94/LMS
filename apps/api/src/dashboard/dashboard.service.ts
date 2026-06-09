@@ -30,7 +30,7 @@ export class DashboardService {
       this.prisma.seatAssignment.count({ where: { tenantId, status: { in: ['TEMPORARY', 'CONFIRMED'] } } }),
       this.prisma.attendance.count({ where: { tenantId, date: todayStart, ...branchFilter } }),
       this.prisma.payment.aggregate({
-        where: { tenantId, status: 'PAID', paidAt: { gte: monthStart }, ...branchFilter },
+        where: { tenantId, status: 'PAID', deletedAt: null, paidAt: { gte: monthStart }, ...branchFilter },
         _sum: { amount: true },
       }),
       this.prisma.payment.count({ where: { tenantId, status: 'PENDING', ...branchFilter } }),
@@ -93,6 +93,7 @@ export class DashboardService {
         where: {
           tenantId,
           status: 'PAID',
+          deletedAt: null,
           paidAt: { gte: start, lt: end },
           ...(branchId && { branchId }),
         },

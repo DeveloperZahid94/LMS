@@ -5,3 +5,4 @@
 
 ALTER TABLE "tiffin_subscriptions" ADD COLUMN IF NOT EXISTS "paidAmount" DECIMAL(10,2) NOT NULL DEFAULT 0;
 ALTER TABLE "tiffin_subscriptions" ADD COLUMN IF NOT EXISTS "balance"    DECIMAL(10,2) NOT NULL DEFAULT 0;
+

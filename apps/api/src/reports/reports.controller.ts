@@ -42,6 +42,21 @@ export class ReportsController {
     return this.service.methodBreakdown(q);
   }
 
+  @Get('income-sources')
+  incomeSources(@Query() q: ReportsRangeDto) {
+    return this.service.incomeBySource(q);
+  }
+
+  @Get('profit-loss')
+  profitLoss(@Query() q: ReportsTimeseriesDto) {
+    return this.service.profitLoss({
+      dateFrom: q.dateFrom,
+      dateTo: q.dateTo,
+      branchId: q.branchId,
+      bucket: q.bucket ?? 'day',
+    });
+  }
+
   @Get('aging')
   aging(@Query('branchId') branchId?: string) {
     return this.service.aging({ branchId });

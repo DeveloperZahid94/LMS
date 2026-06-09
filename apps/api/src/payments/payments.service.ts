@@ -6,6 +6,7 @@ import { RAZORPAY_SERVICE, RazorpayService } from '../integrations/razorpay.serv
 import { WHATSAPP_SERVICE, WhatsAppService } from '../integrations/whatsapp.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { SeatAssignmentsService } from '../seat-assignments/seat-assignments.service';
+import { BalanceService } from '../balance/balance.service';
 import { EmailService } from '../email/email.service';
 import { CreatePaymentDto, RazorpayCreateOrderDto, RazorpayVerifyDto } from './dto/payment.dto';
 import { FeatureKey, PaymentStatus, PaymentMethod } from '@lms/shared';
@@ -18,6 +19,7 @@ export class PaymentsService {
     private audit: AuditService,
     private featureFlags: FeatureFlagsService,
     private seatAssignments: SeatAssignmentsService,
+    private balance: BalanceService,
     private email: EmailService,
     @Inject(RAZORPAY_SERVICE) private razorpay: RazorpayService,
     @Inject(WHATSAPP_SERVICE) private whatsapp: WhatsAppService,
@@ -137,7 +139,8 @@ export class PaymentsService {
     }
     const hydrated = data.map((p) => {
       const monthlyFee = monthlyByStudent.get(p.studentId) ?? 0;
-      return { ...p, monthlyFee, balance: Math.max(0, monthlyFee - Number(p.amount)) };
+      const settled = Number(p.amount) + Number((p as any).discount ?? 0);
+      return { ...p, discount: Number((p as any).discount ?? 0), monthlyFee, balance: Math.max(0, monthlyFee - settled) };
     });
     return { data: hydrated, total, page, limit };
   }
@@ -158,7 +161,7 @@ export class PaymentsService {
     const payments = await this.prisma.payment.findMany({
       where: { tenantId, studentId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, amount: true, method: true, status: true, paidAt: true, createdAt: true, notes: true },
+      select: { id: true, amount: true, discount: true, discountReason: true, method: true, status: true, paidAt: true, createdAt: true, notes: true },
     });
     const totalPaid = payments
       .filter((p) => p.status === PaymentStatus.PAID)
@@ -193,7 +196,7 @@ export class PaymentsService {
 
     return {
       student,
-      payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })),
+      payments: payments.map((p) => ({ ...p, amount: Number(p.amount), discount: Number(p.discount ?? 0) })),
       totalPaid,
       monthlyTotal,
       allocations,
@@ -221,6 +224,8 @@ export class PaymentsService {
     // Re-evaluate allocation status — removing this payment may drop the student
     // back below the 50% threshold (CONFIRMED → TEMPORARY).
     await this.seatAssignments.reconcileAfterPaymentChange(tenantId, payment.studentId);
+    // Deleting a payment raises what the student owes — recompute the derived balance.
+    await this.balance.recompute(tenantId, payment.studentId);
     return { ok: true };
   }
 
@@ -235,6 +240,8 @@ export class PaymentsService {
         studentId: dto.studentId,
         enrollmentId: dto.enrollmentId ?? null,
         amount: dto.amount,
+        discount: dto.discount ?? 0,
+        discountReason: dto.discountReason?.trim() || null,
         method: dto.method,
         status: PaymentStatus.PAID,
         paidAt: new Date(),
@@ -259,22 +266,11 @@ export class PaymentsService {
       });
     }
 
-    // Optionally apply to the student's account balance: clears due, surplus → advance.
-    if (dto.applyToAccount) {
-      const student = await this.prisma.student.findFirst({
-        where: { id: dto.studentId, tenantId },
-        select: { outstandingBalance: true },
-      });
-      const current = Number((student as any)?.outstandingBalance ?? 0);
-      const newBalance = Number((current - dto.amount).toFixed(2));
-      await this.prisma.student.update({
-        where: { id: dto.studentId },
-        data: { outstandingBalance: newBalance },
-      });
-    }
-
     await this.notifyReceipt(payment.id);
     await this.seatAssignments.maybePromoteAfterPayment(tenantId, dto.studentId);
+    // Account balance is derived — recompute from all payments + active accommodations.
+    // (Every payment now reduces the balance; the old `applyToAccount` opt-in is obsolete.)
+    await this.balance.recompute(tenantId, dto.studentId);
     await this.audit.record({
       tenantId,
       userId: this.tenantCtx.userId,
@@ -344,6 +340,7 @@ export class PaymentsService {
     });
     await this.notifyReceipt(updated.id);
     await this.seatAssignments.maybePromoteAfterPayment(tenantId, updated.studentId);
+    await this.balance.recompute(tenantId, updated.studentId);
     return updated;
   }
 

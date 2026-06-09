@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
+import { BalanceService } from '../balance/balance.service';
 import { CreateSeatAssignmentDto } from './dto/create-seat-assignment.dto';
 import { PaginatedResponse, Shift, SeatAssignmentStatus } from '@lms/shared';
 
@@ -17,6 +18,7 @@ export class SeatAssignmentsService {
     private prisma: PrismaService,
     private tenantCtx: TenantContextService,
     private audit: AuditService,
+    private balance: BalanceService,
   ) {}
 
   async list(opts: {
@@ -158,6 +160,8 @@ export class SeatAssignmentsService {
       entityId: created.id,
       diff: { after: { seatCode: seat.code, studentCode: student.code, shift: dto.shift, status, snapshotRate } },
     });
+    // Adding a billable allocation raises the student's expected dues.
+    await this.balance.recompute(tenantId, dto.studentId);
     return created;
   }
 
@@ -184,6 +188,8 @@ export class SeatAssignmentsService {
       entity: 'seat_assignments',
       entityId: ended.id,
     });
+    // Ending an allocation lowers the student's expected dues.
+    await this.balance.recompute(tenantId, ended.studentId);
     return ended;
   }
 
