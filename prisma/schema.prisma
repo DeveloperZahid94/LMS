@@ -41,6 +41,7 @@ model Tenant {
   pgRooms      PgRoom[]
   pgRoomAssignments PgRoomAssignment[]
   tiffinSubscriptions TiffinSubscription[]
+  expenses     Expense[]
   setting      TenantSetting?
   emailConfig  EmailConfig?
 
@@ -111,6 +112,7 @@ model Branch {
   payments    Payment[]
   pgRooms     PgRoom[]
   tiffinSubscriptions TiffinSubscription[]
+  expenses    Expense[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -574,6 +576,46 @@ enum TiffinStatus {
   ACTIVE
   PAUSED
   ENDED
+}
+
+// ============================================================
+// EXPENSES (operational costs — rent, salary, utilities, supplies…)
+// ============================================================
+
+model Expense {
+  id          String   @id @default(uuid())
+  tenantId    String
+  branchId    String?                          // null = tenant-wide expense, not tied to a branch
+  category    ExpenseCategory @default(MISC)
+  title       String                           // short label e.g. "April shop rent"
+  amount      Decimal  @db.Decimal(10, 2)
+  expenseDate DateTime @default(now())          // when the cost was incurred
+  paymentMethod String?                         // CASH | UPI | NETBANKING | CARD | CHEQUE (free-text for flexibility)
+  vendor      String?                          // who was paid (landlord, electricity board, staff name…)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, expenseDate])
+  @@index([tenantId, category])
+  @@index([tenantId, branchId])
+  @@map("expenses")
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARY
+  ELECTRICITY
+  WATER
+  INTERNET
+  MAINTENANCE
+  SUPPLIES
+  EQUIPMENT
+  MARKETING
+  MISC
 }
 
 // ============================================================

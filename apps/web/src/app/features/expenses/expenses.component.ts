@@ -1,0 +1,474 @@
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import {
+  ExpensesApiService, Expense, ExpenseStats, ExpenseCategory, CreateExpenseDto,
+} from './expenses.service';
+import { BranchesApiService, Branch } from '../students/branches.service';
+import { ToastService } from '../../core/services/toast.service';
+
+type CategoryFilter = 'ALL' | ExpenseCategory;
+
+interface CategoryOption { value: ExpenseCategory; label: string; icon: string; }
+
+@Component({
+  selector: 'lms-expenses',
+  standalone: true,
+  host: { class: 'flex flex-col h-[calc(100dvh-5.75rem)] min-h-0 overflow-hidden' },
+  imports: [CommonModule, FormsModule],
+  template: `
+    <!-- HEADER -->
+    <div class="flex items-end justify-between mb-4 flex-wrap gap-2 shrink-0">
+      <div>
+        <h1 class="text-2xl font-bold flex items-center gap-2">💰 Expenses</h1>
+        <p class="text-sm opacity-60 mt-1">Track operational costs — rent, salaries, utilities, supplies & more</p>
+      </div>
+      <button class="btn btn-primary btn-sm" (click)="openCreate()">+ Add expense</button>
+    </div>
+
+    <!-- STATS -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3 shrink-0" *ngIf="stats() as s">
+      <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
+        <div class="text-xs opacity-60 uppercase tracking-wider">This month</div>
+        <div class="text-2xl font-bold text-primary">₹{{ s.thisMonthAmount | number }}</div>
+      </div></div>
+      <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
+        <div class="text-xs opacity-60 uppercase tracking-wider">This month #</div>
+        <div class="text-2xl font-bold">{{ s.thisMonthCount }}</div>
+      </div></div>
+      <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
+        <div class="text-xs opacity-60 uppercase tracking-wider">All-time spend</div>
+        <div class="text-2xl font-bold text-error">₹{{ s.totalAmount | number }}</div>
+      </div></div>
+      <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
+        <div class="text-xs opacity-60 uppercase tracking-wider">Records</div>
+        <div class="text-2xl font-bold opacity-70">{{ s.total }}</div>
+      </div></div>
+      <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
+        <div class="text-xs opacity-60 uppercase tracking-wider">Top category</div>
+        <div class="text-base font-bold truncate" *ngIf="s.topCategory; else noTop">
+          {{ categoryLabel(s.topCategory.category) }}
+          <span class="opacity-60 text-sm">· ₹{{ s.topCategory.amount | number }}</span>
+        </div>
+        <ng-template #noTop><div class="text-base font-bold opacity-50">—</div></ng-template>
+      </div></div>
+    </div>
+
+    <!-- FILTER BAR -->
+    <div class="card bg-base-100 border border-base-300 mb-3 shadow-sm shrink-0">
+      <div class="card-body p-2 flex flex-row flex-wrap items-center gap-2">
+        <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[180px]">
+          <span class="opacity-50">🔍</span>
+          <input type="text" class="grow" [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event); page.set(1)" placeholder="Search title, vendor or notes…" />
+          <button *ngIf="searchTerm()" class="opacity-60 hover:opacity-100" (click)="searchTerm.set('')" title="Clear">✕</button>
+        </label>
+        <select class="select select-bordered select-sm" [(ngModel)]="categoryFilterModel" (ngModelChange)="onCategoryFilter($event)">
+          <option value="ALL">All categories</option>
+          <option *ngFor="let c of categories" [value]="c.value">{{ c.icon }} {{ c.label }}</option>
+        </select>
+        <select *ngIf="branches().length > 1" class="select select-bordered select-sm" [(ngModel)]="branchFilterModel" (ngModelChange)="onBranchFilter($event)">
+          <option value="ALL">All branches</option>
+          <option value="NONE">Tenant-wide</option>
+          <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }}</option>
+        </select>
+        <!-- DATE RANGE -->
+        <select class="select select-bordered select-sm" [ngModel]="datePreset()" (ngModelChange)="applyPreset($event)" title="Date range">
+          <option value="ALL">All time</option>
+          <option value="THIS_MONTH">This month</option>
+          <option value="LAST_MONTH">Last month</option>
+          <option value="LAST_3_MONTHS">Last 3 months</option>
+          <option value="THIS_YEAR">This year</option>
+          <option value="CUSTOM">Custom…</option>
+        </select>
+        <div class="join" *ngIf="datePreset() === 'CUSTOM'">
+          <input type="date" class="input input-bordered input-sm join-item" [ngModel]="fromDate()" (ngModelChange)="setFrom($event)" title="From date" />
+          <span class="join-item flex items-center px-2 bg-base-200 text-xs opacity-60">to</span>
+          <input type="date" class="input input-bordered input-sm join-item" [ngModel]="toDate()" (ngModelChange)="setTo($event)" title="To date" />
+        </div>
+        <div class="flex-1"></div>
+        <button class="btn btn-sm btn-outline gap-1" (click)="exportCsv()" [disabled]="filtered().length === 0" title="Export the filtered rows to CSV">⬇ Export CSV</button>
+        <button class="btn btn-sm btn-ghost btn-square" (click)="reload()" title="Refresh">⟳</button>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="card bg-base-100 border border-base-300 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
+      <div class="overflow-auto flex-1 min-h-0">
+        <table class="table">
+          <thead class="bg-base-200 sticky top-0 z-10">
+            <tr class="text-xs uppercase tracking-wider">
+              <th>Date</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Branch</th>
+              <th>Vendor</th>
+              <th>Method</th>
+              <th class="text-right">Amount</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let e of paged()" class="hover">
+              <td class="text-sm whitespace-nowrap">{{ e.expenseDate | date:'dd/MM/yyyy' }}</td>
+              <td>
+                <div class="font-semibold">{{ e.title }}</div>
+                <div class="text-xs opacity-50 max-w-[16rem] truncate" *ngIf="e.notes">{{ e.notes }}</div>
+              </td>
+              <td><span class="badge badge-sm badge-outline">{{ categoryIcon(e.category) }} {{ categoryLabel(e.category) }}</span></td>
+              <td class="text-sm">{{ e.branch?.name || '—' }}</td>
+              <td class="text-sm">{{ e.vendor || '—' }}</td>
+              <td class="text-sm">{{ e.paymentMethod || '—' }}</td>
+              <td class="text-right font-semibold">₹{{ e.amount | number }}</td>
+              <td class="text-right">
+                <div class="flex items-center justify-end gap-1">
+                  <button class="btn btn-ghost btn-xs" (click)="openEdit(e)" title="Edit">✎</button>
+                  <button class="btn btn-ghost btn-xs text-error" (click)="confirmDelete(e)" title="Delete">🗑</button>
+                </div>
+              </td>
+            </tr>
+            <tr *ngIf="filtered().length === 0 && !loading()">
+              <td colspan="8" class="text-center opacity-60 py-10">
+                <div class="text-base mb-1">No expenses match your filters.</div>
+                <button class="link link-primary text-sm" (click)="openCreate()">Add your first expense →</button>
+              </td>
+            </tr>
+            <tr *ngIf="loading()"><td colspan="8" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
+          </tbody>
+          <tfoot *ngIf="filtered().length > 0">
+            <tr class="bg-base-200 font-semibold">
+              <td colspan="6" class="text-right text-xs uppercase opacity-60">Total (filtered)</td>
+              <td class="text-right">₹{{ filteredTotal() | number }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- PAGINATION -->
+    <div class="flex items-center justify-between pt-3 text-sm flex-wrap gap-2 shrink-0">
+      <div class="opacity-60">
+        Showing <span class="font-medium">{{ filtered().length === 0 ? 0 : (page() - 1) * pageSize + 1 }}</span>
+        to <span class="font-medium">{{ rangeEnd() }}</span>
+        of <span class="font-medium">{{ filtered().length }}</span> expenses
+      </div>
+      <div class="join">
+        <button class="btn btn-sm join-item" (click)="page.set(1)" [disabled]="page() === 1">«</button>
+        <button class="btn btn-sm join-item" (click)="goTo(page() - 1)" [disabled]="page() === 1">Previous</button>
+        <button class="btn btn-sm join-item btn-active">{{ page() }} / {{ totalPages() }}</button>
+        <button class="btn btn-sm join-item" (click)="goTo(page() + 1)" [disabled]="page() >= totalPages()">Next</button>
+        <button class="btn btn-sm join-item" (click)="goTo(totalPages())" [disabled]="page() >= totalPages()">»</button>
+      </div>
+    </div>
+
+    <!-- ============ CREATE / EDIT MODAL ============ -->
+    <dialog class="modal" [class.modal-open]="editorOpen()">
+      <div class="modal-box max-w-lg">
+        <h3 class="font-bold text-lg">{{ editingId() ? '✎ Edit expense' : '+ Add expense' }}</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <label class="form-control md:col-span-2">
+            <div class="label py-1"><span class="label-text">Title *</span></div>
+            <input class="input input-bordered input-sm" [(ngModel)]="form.title" placeholder="e.g. April shop rent" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Category *</span></div>
+            <select class="select select-bordered select-sm" [(ngModel)]="form.category">
+              <option *ngFor="let c of categories" [value]="c.value">{{ c.icon }} {{ c.label }}</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Amount (₹) *</span></div>
+            <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [(ngModel)]="form.amount" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Date *</span></div>
+            <input class="input input-bordered input-sm" type="date" [(ngModel)]="form.expenseDate" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Branch</span></div>
+            <select class="select select-bordered select-sm" [(ngModel)]="form.branchId">
+              <option value="">Tenant-wide (no branch)</option>
+              <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Payment method</span></div>
+            <select class="select select-bordered select-sm" [(ngModel)]="form.paymentMethod">
+              <option value="">—</option>
+              <option value="CASH">Cash</option>
+              <option value="UPI">UPI</option>
+              <option value="NETBANKING">Bank transfer</option>
+              <option value="CARD">Card</option>
+              <option value="CHEQUE">Cheque</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text">Vendor / paid to</span></div>
+            <input class="input input-bordered input-sm" [(ngModel)]="form.vendor" placeholder="e.g. Landlord, Electricity board" />
+          </label>
+          <label class="form-control md:col-span-2">
+            <div class="label py-1"><span class="label-text">Notes (optional)</span></div>
+            <textarea class="textarea textarea-bordered textarea-sm" rows="2" [(ngModel)]="form.notes" placeholder="Any extra detail…"></textarea>
+          </label>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="closeEditor()">Cancel</button>
+          <button class="btn btn-primary" [disabled]="busy() || !isValid()" (click)="save()">
+            <span *ngIf="busy()" class="loading loading-spinner loading-sm"></span>
+            {{ editingId() ? 'Save changes' : 'Add expense' }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeEditor()">close</button></form>
+    </dialog>
+
+    <!-- ============ DELETE CONFIRM ============ -->
+    <dialog class="modal" [class.modal-open]="!!deleting()">
+      <div class="modal-box max-w-sm" *ngIf="deleting() as e">
+        <h3 class="font-bold text-lg">Delete expense?</h3>
+        <p class="py-2 text-sm">Permanently remove <strong>{{ e.title }}</strong> (₹{{ e.amount | number }}). This can't be undone.</p>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="deleting.set(null)">Cancel</button>
+          <button class="btn btn-error" [disabled]="busy()" (click)="doDelete()">
+            <span *ngIf="busy()" class="loading loading-spinner loading-sm"></span> Delete
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="deleting.set(null)">close</button></form>
+    </dialog>
+  `,
+})
+export class ExpensesComponent implements OnInit {
+  private api = inject(ExpensesApiService);
+  private branchesApi = inject(BranchesApiService);
+  private toast = inject(ToastService);
+
+  data = signal<Expense[]>([]);
+  stats = signal<ExpenseStats | null>(null);
+  branches = signal<Branch[]>([]);
+  loading = signal(false);
+  busy = signal(false);
+
+  searchTerm = signal('');
+  categoryFilter = signal<CategoryFilter>('ALL');
+  categoryFilterModel: CategoryFilter = 'ALL';
+  branchFilter = signal<'ALL' | 'NONE' | string>('ALL');
+  branchFilterModel: 'ALL' | 'NONE' | string = 'ALL';
+
+  // Date range — preset drives from/to; 'CUSTOM' lets the user pick freely.
+  datePreset = signal<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'LAST_3_MONTHS' | 'THIS_YEAR' | 'CUSTOM'>('ALL');
+  fromDate = signal('');
+  toDate = signal('');
+
+  categories: CategoryOption[] = [
+    { value: 'RENT',        label: 'Rent',        icon: '🏠' },
+    { value: 'SALARY',      label: 'Salary',      icon: '👤' },
+    { value: 'ELECTRICITY', label: 'Electricity', icon: '⚡' },
+    { value: 'WATER',       label: 'Water',       icon: '💧' },
+    { value: 'INTERNET',    label: 'Internet',    icon: '🌐' },
+    { value: 'MAINTENANCE', label: 'Maintenance', icon: '🔧' },
+    { value: 'SUPPLIES',    label: 'Supplies',    icon: '📦' },
+    { value: 'EQUIPMENT',   label: 'Equipment',   icon: '🖥' },
+    { value: 'MARKETING',   label: 'Marketing',   icon: '📣' },
+    { value: 'MISC',        label: 'Misc',        icon: '🧾' },
+  ];
+
+  // editor (create + edit share one form)
+  editorOpen = signal(false);
+  editingId = signal<string | null>(null);
+  deleting = signal<Expense | null>(null);
+  form: CreateExpenseDto = this.blankForm();
+
+  // pagination
+  page = signal(1);
+  pageSize = 12;
+
+  filtered = computed(() => {
+    const q = this.searchTerm().trim().toLowerCase();
+    const cf = this.categoryFilter();
+    const bf = this.branchFilter();
+    const from = this.fromDate() ? new Date(this.fromDate() + 'T00:00:00').getTime() : null;
+    const to = this.toDate() ? new Date(this.toDate() + 'T23:59:59.999').getTime() : null;
+    return this.data().filter((e) => {
+      if (cf !== 'ALL' && e.category !== cf) return false;
+      if (bf === 'NONE' && e.branchId) return false;
+      if (bf !== 'ALL' && bf !== 'NONE' && e.branchId !== bf) return false;
+      const t = new Date(e.expenseDate).getTime();
+      if (from !== null && t < from) return false;
+      if (to !== null && t > to) return false;
+      if (!q) return true;
+      return (
+        e.title.toLowerCase().includes(q) ||
+        (e.vendor ?? '').toLowerCase().includes(q) ||
+        (e.notes ?? '').toLowerCase().includes(q)
+      );
+    });
+  });
+
+  filteredTotal = computed(() => this.filtered().reduce((sum, e) => sum + Number(e.amount ?? 0), 0));
+  totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
+  paged = computed(() => {
+    const p = Math.min(this.page(), this.totalPages());
+    const start = (p - 1) * this.pageSize;
+    return this.filtered().slice(start, start + this.pageSize);
+  });
+
+  ngOnInit() {
+    this.reload();
+    this.branchesApi.list().subscribe({ next: (bs) => this.branches.set(bs), error: () => {} });
+  }
+
+  goTo(p: number) {
+    const tp = this.totalPages();
+    if (p < 1 || p > tp || p === this.page()) return;
+    this.page.set(p);
+  }
+  rangeEnd(): number { return Math.min(this.page() * this.pageSize, this.filtered().length); }
+
+  onCategoryFilter(v: CategoryFilter) { this.categoryFilter.set(v); this.page.set(1); }
+  onBranchFilter(v: 'ALL' | 'NONE' | string) { this.branchFilter.set(v); this.page.set(1); }
+
+  setFrom(v: string) { this.fromDate.set(v); this.page.set(1); }
+  setTo(v: string) { this.toDate.set(v); this.page.set(1); }
+
+  /** Translate a preset into concrete from/to bounds (local time, no TZ shift). */
+  applyPreset(p: 'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'LAST_3_MONTHS' | 'THIS_YEAR' | 'CUSTOM') {
+    this.datePreset.set(p);
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth();
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (p === 'ALL')                { this.fromDate.set(''); this.toDate.set(''); }
+    else if (p === 'THIS_MONTH')    { this.fromDate.set(iso(new Date(y, m, 1)));     this.toDate.set(iso(new Date(y, m + 1, 0))); }
+    else if (p === 'LAST_MONTH')    { this.fromDate.set(iso(new Date(y, m - 1, 1))); this.toDate.set(iso(new Date(y, m, 0))); }
+    else if (p === 'LAST_3_MONTHS') { this.fromDate.set(iso(new Date(y, m - 2, 1))); this.toDate.set(iso(new Date(y, m + 1, 0))); }
+    else if (p === 'THIS_YEAR')     { this.fromDate.set(iso(new Date(y, 0, 1)));     this.toDate.set(iso(new Date(y, 11, 31))); }
+    // CUSTOM: keep whatever from/to are currently set so the user picks freely.
+    this.page.set(1);
+  }
+
+  /** Export the currently-filtered rows to a CSV file (with a BOM so Excel renders ₹/UTF-8). */
+  exportCsv() {
+    const rows = this.filtered();
+    if (!rows.length) return;
+    const headers = ['Date', 'Title', 'Category', 'Branch', 'Vendor', 'Method', 'Amount', 'Notes'];
+    const esc = (v: unknown) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const body = rows.map((e) => [
+      new Date(e.expenseDate).toLocaleDateString('en-IN'),
+      e.title,
+      this.categoryLabel(e.category),
+      e.branch?.name ?? 'Tenant-wide',
+      e.vendor ?? '',
+      e.paymentMethod ?? '',
+      e.amount,
+      e.notes ?? '',
+    ].map(esc).join(','));
+    const total = rows.reduce((s, e) => s + Number(e.amount ?? 0), 0);
+    body.push(['', '', '', '', '', 'TOTAL', total, ''].map(esc).join(','));
+
+    const csv = '﻿' + [headers.join(','), ...body].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const range = (this.fromDate() || this.toDate())
+      ? `_${this.fromDate() || 'start'}_to_${this.toDate() || 'now'}` : '';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `expenses${range}_${this.todayIso()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.toast.success(`Exported ${rows.length} expense(s) to CSV`);
+  }
+
+  reload() {
+    this.loading.set(true);
+    this.api.list().subscribe({
+      next: (rows) => { this.data.set(rows); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.toast.error('Could not load expenses'); },
+    });
+    this.api.stats().subscribe({ next: (s) => this.stats.set(s), error: () => {} });
+  }
+
+  categoryLabel(c: ExpenseCategory): string { return this.categories.find((x) => x.value === c)?.label ?? c; }
+  categoryIcon(c: ExpenseCategory): string { return this.categories.find((x) => x.value === c)?.icon ?? '🧾'; }
+
+  // ----- editor -----
+  openCreate() {
+    this.editingId.set(null);
+    this.form = this.blankForm();
+    this.editorOpen.set(true);
+    this.blur();
+  }
+  openEdit(e: Expense) {
+    this.editingId.set(e.id);
+    this.form = {
+      title: e.title,
+      category: e.category,
+      amount: e.amount,
+      expenseDate: (e.expenseDate ?? '').slice(0, 10),
+      branchId: e.branchId ?? '',
+      paymentMethod: e.paymentMethod ?? '',
+      vendor: e.vendor ?? '',
+      notes: e.notes ?? '',
+    };
+    this.editorOpen.set(true);
+    this.blur();
+  }
+  closeEditor() { this.editorOpen.set(false); }
+
+  isValid(): boolean {
+    return !!this.form.title?.trim() && !!this.form.category && Number(this.form.amount) >= 0 && !!this.form.expenseDate;
+  }
+
+  save() {
+    if (!this.isValid()) return;
+    const payload: CreateExpenseDto = {
+      title: this.form.title.trim(),
+      category: this.form.category,
+      amount: Number(this.form.amount),
+      expenseDate: this.form.expenseDate,
+      branchId: this.form.branchId || undefined,
+      paymentMethod: this.form.paymentMethod || undefined,
+      vendor: this.form.vendor?.trim() || undefined,
+      notes: this.form.notes?.trim() || undefined,
+    };
+    this.busy.set(true);
+    const id = this.editingId();
+    const req = id ? this.api.update(id, payload) : this.api.create(payload);
+    req.subscribe({
+      next: () => {
+        this.toast.success(id ? 'Expense updated' : 'Expense added');
+        this.afterAction(() => this.editorOpen.set(false));
+      },
+      error: (e) => this.fail(e, 'Could not save expense'),
+    });
+  }
+
+  confirmDelete(e: Expense) { this.deleting.set(e); this.blur(); }
+  doDelete() {
+    const e = this.deleting(); if (!e) return;
+    this.busy.set(true);
+    this.api.remove(e.id).subscribe({
+      next: () => { this.toast.success('Expense deleted'); this.afterAction(() => this.deleting.set(null)); },
+      error: (err) => this.fail(err, 'Could not delete expense'),
+    });
+  }
+
+  private afterAction(close: () => void) { this.busy.set(false); close(); this.reload(); }
+  private fail(err: any, fallback: string) {
+    this.busy.set(false);
+    const msg = err?.error?.message;
+    this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? fallback));
+  }
+
+  private blankForm(): CreateExpenseDto {
+    return {
+      title: '', category: 'MISC', amount: 0, expenseDate: this.todayIso(),
+      branchId: '', paymentMethod: '', vendor: '', notes: '',
+    };
+  }
+  private blur() { (document.activeElement as HTMLElement | null)?.blur(); }
+  private todayIso(): string { return new Date().toISOString().slice(0, 10); }
+}

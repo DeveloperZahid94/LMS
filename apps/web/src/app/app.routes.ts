@@ -70,6 +70,11 @@ export const routes: Routes = [
           import('./features/tiffin/tiffin.component').then((m) => m.TiffinComponent),
       },
       {
+        path: 'expenses',
+        loadComponent: () =>
+          import('./features/expenses/expenses.component').then((m) => m.ExpensesComponent),
+      },
+      {
         path: 'whatsapp',
         loadComponent: () =>
           import('./features/whatsapp/whatsapp.component').then((m) => m.WhatsappComponent),

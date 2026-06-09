@@ -310,6 +310,8 @@ export class ShellComponent implements OnInit {
     { label: 'Tiffin', icon: '🍱', path: '/tiffin', feature: FeatureKey.TIFFIN },
     { label: 'Attendance', icon: '✓', path: '/attendance', feature: FeatureKey.QR_ATTENDANCE },
     { label: 'Payments', icon: '₹', path: '/payments', feature: FeatureKey.PAYMENT_GATEWAY },
+    // Ungated for now — always visible. Tag with a FeatureKey if it should be plan-gated later.
+    { label: 'Expenses', icon: '💰', path: '/expenses' },
     { label: 'Alerts',   icon: '⚠', path: '/alerts', feature: FeatureKey.ALERTS },
     { label: 'WhatsApp', icon: '💬', path: '/whatsapp', feature: FeatureKey.WHATSAPP },
     { label: 'Reports',  icon: '📊', path: '/reports', feature: FeatureKey.REPORTS },
