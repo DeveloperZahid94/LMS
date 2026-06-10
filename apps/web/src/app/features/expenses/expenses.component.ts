@@ -5,6 +5,7 @@ import {
   ExpensesApiService, Expense, ExpenseStats, ExpenseCategory, CreateExpenseDto,
 } from './expenses.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
+import { StaffApiService, Staff } from '../../core/services/staff.service';
 import { ToastService } from '../../core/services/toast.service';
 
 type CategoryFilter = 'ALL' | ExpenseCategory;
@@ -71,6 +72,10 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
           <option value="NONE">Tenant-wide</option>
           <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }}</option>
         </select>
+        <select *ngIf="staff().length" class="select select-bordered select-sm" [(ngModel)]="staffFilterModel" (ngModelChange)="onStaffFilter($event)" title="Filter by staff">
+          <option value="ALL">All staff</option>
+          <option *ngFor="let s of staff()" [value]="s.id">{{ s.fullName }}</option>
+        </select>
         <!-- DATE RANGE -->
         <select class="select select-bordered select-sm" [ngModel]="datePreset()" (ngModelChange)="applyPreset($event)" title="Date range">
           <option value="ALL">All time</option>
@@ -101,6 +106,7 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               <th>Title</th>
               <th>Category</th>
               <th>Branch</th>
+              <th>Staff</th>
               <th>Vendor</th>
               <th>Method</th>
               <th class="text-right">Amount</th>
@@ -116,6 +122,7 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               </td>
               <td><span class="badge badge-sm badge-outline">{{ categoryIcon(e.category) }} {{ categoryLabel(e.category) }}</span></td>
               <td class="text-sm">{{ e.branch?.name || '—' }}</td>
+              <td class="text-sm">{{ e.staff?.fullName || '—' }}</td>
               <td class="text-sm">{{ e.vendor || '—' }}</td>
               <td class="text-sm">{{ e.paymentMethod || '—' }}</td>
               <td class="text-right font-semibold">₹{{ e.amount | number }}</td>
@@ -127,16 +134,16 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               </td>
             </tr>
             <tr *ngIf="filtered().length === 0 && !loading()">
-              <td colspan="8" class="text-center opacity-60 py-10">
+              <td colspan="9" class="text-center opacity-60 py-10">
                 <div class="text-base mb-1">No expenses match your filters.</div>
                 <button class="link link-primary text-sm" (click)="openCreate()">Add your first expense →</button>
               </td>
             </tr>
-            <tr *ngIf="loading()"><td colspan="8" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
+            <tr *ngIf="loading()"><td colspan="9" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
           </tbody>
           <tfoot *ngIf="filtered().length > 0">
             <tr class="bg-base-200 font-semibold">
-              <td colspan="6" class="text-right text-xs uppercase opacity-60">Total (filtered)</td>
+              <td colspan="7" class="text-right text-xs uppercase opacity-60">Total (filtered)</td>
               <td class="text-right">₹{{ filteredTotal() | number }}</td>
               <td></td>
             </tr>
@@ -163,57 +170,75 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
 
     <!-- ============ CREATE / EDIT MODAL ============ -->
     <dialog class="modal" [class.modal-open]="editorOpen()">
-      <div class="modal-box max-w-lg">
+      <div class="modal-box max-w-2xl">
+        <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="closeEditor()">✕</button></form>
         <h3 class="font-bold text-lg">{{ editingId() ? '✎ Edit expense' : '+ Add expense' }}</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-          <label class="form-control md:col-span-2">
-            <div class="label py-1"><span class="label-text">Title *</span></div>
+        <p class="text-sm opacity-60 mb-3">Track an operational cost — rent, salary, utilities, supplies & more.</p>
+
+        <div class="space-y-3">
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-sm">Title *</span></div>
             <input class="input input-bordered input-sm" [(ngModel)]="form.title" placeholder="e.g. April shop rent" />
           </label>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label class="form-control sm:col-span-2">
+              <div class="label py-0.5"><span class="label-text text-sm">Category *</span></div>
+              <select class="select select-bordered select-sm" [(ngModel)]="form.category">
+                <option *ngFor="let c of categories" [value]="c.value">{{ c.icon }} {{ c.label }}</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Amount (₹) *</span></div>
+              <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [(ngModel)]="form.amount" placeholder="0" />
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Date *</span></div>
+              <input class="input input-bordered input-sm" type="date" [(ngModel)]="form.expenseDate" />
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Branch</span></div>
+              <select class="select select-bordered select-sm" [(ngModel)]="form.branchId">
+                <option value="">Tenant-wide (no branch)</option>
+                <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Payment method</span></div>
+              <select class="select select-bordered select-sm" [(ngModel)]="form.paymentMethod">
+                <option value="">—</option>
+                <option value="CASH">Cash</option>
+                <option value="UPI">UPI</option>
+                <option value="NETBANKING">Bank transfer</option>
+                <option value="CARD">Card</option>
+                <option value="CHEQUE">Cheque</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Vendor / paid to</span></div>
+              <input class="input input-bordered input-sm" [(ngModel)]="form.vendor" placeholder="e.g. Landlord, Electricity board" />
+            </label>
+            <label class="form-control" *ngIf="staff().length">
+              <div class="label py-0.5"><span class="label-text text-sm">Staff member</span></div>
+              <select class="select select-bordered select-sm" [(ngModel)]="form.staffId">
+                <option value="">— None —</option>
+                <option *ngFor="let s of staff()" [value]="s.id">{{ s.fullName }}</option>
+              </select>
+            </label>
+          </div>
+
           <label class="form-control">
-            <div class="label py-1"><span class="label-text">Category *</span></div>
-            <select class="select select-bordered select-sm" [(ngModel)]="form.category">
-              <option *ngFor="let c of categories" [value]="c.value">{{ c.icon }} {{ c.label }}</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <div class="label py-1"><span class="label-text">Amount (₹) *</span></div>
-            <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [(ngModel)]="form.amount" />
-          </label>
-          <label class="form-control">
-            <div class="label py-1"><span class="label-text">Date *</span></div>
-            <input class="input input-bordered input-sm" type="date" [(ngModel)]="form.expenseDate" />
-          </label>
-          <label class="form-control">
-            <div class="label py-1"><span class="label-text">Branch</span></div>
-            <select class="select select-bordered select-sm" [(ngModel)]="form.branchId">
-              <option value="">Tenant-wide (no branch)</option>
-              <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <div class="label py-1"><span class="label-text">Payment method</span></div>
-            <select class="select select-bordered select-sm" [(ngModel)]="form.paymentMethod">
-              <option value="">—</option>
-              <option value="CASH">Cash</option>
-              <option value="UPI">UPI</option>
-              <option value="NETBANKING">Bank transfer</option>
-              <option value="CARD">Card</option>
-              <option value="CHEQUE">Cheque</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <div class="label py-1"><span class="label-text">Vendor / paid to</span></div>
-            <input class="input input-bordered input-sm" [(ngModel)]="form.vendor" placeholder="e.g. Landlord, Electricity board" />
-          </label>
-          <label class="form-control md:col-span-2">
-            <div class="label py-1"><span class="label-text">Notes (optional)</span></div>
-            <textarea class="textarea textarea-bordered textarea-sm" rows="2" [(ngModel)]="form.notes" placeholder="Any extra detail…"></textarea>
+            <div class="label py-0.5"><span class="label-text text-sm">Notes (optional)</span></div>
+            <input class="input input-bordered input-sm" [(ngModel)]="form.notes" placeholder="Any extra detail…" />
           </label>
         </div>
-        <div class="modal-action">
-          <button class="btn btn-ghost" (click)="closeEditor()">Cancel</button>
-          <button class="btn btn-primary" [disabled]="busy() || !isValid()" (click)="save()">
+
+        <div class="modal-action mt-3">
+          <button class="btn btn-ghost btn-sm" (click)="closeEditor()">Cancel</button>
+          <button class="btn btn-primary btn-sm" [disabled]="busy() || !isValid()" (click)="save()">
             <span *ngIf="busy()" class="loading loading-spinner loading-sm"></span>
             {{ editingId() ? 'Save changes' : 'Add expense' }}
           </button>
@@ -241,11 +266,13 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
 export class ExpensesComponent implements OnInit {
   private api = inject(ExpensesApiService);
   private branchesApi = inject(BranchesApiService);
+  private staffApi = inject(StaffApiService);
   private toast = inject(ToastService);
 
   data = signal<Expense[]>([]);
   stats = signal<ExpenseStats | null>(null);
   branches = signal<Branch[]>([]);
+  staff = signal<Staff[]>([]);
   loading = signal(false);
   busy = signal(false);
 
@@ -254,6 +281,8 @@ export class ExpensesComponent implements OnInit {
   categoryFilterModel: CategoryFilter = 'ALL';
   branchFilter = signal<'ALL' | 'NONE' | string>('ALL');
   branchFilterModel: 'ALL' | 'NONE' | string = 'ALL';
+  staffFilter = signal<'ALL' | string>('ALL');
+  staffFilterModel: 'ALL' | string = 'ALL';
 
   // Date range — preset drives from/to; 'CUSTOM' lets the user pick freely.
   datePreset = signal<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'LAST_3_MONTHS' | 'THIS_YEAR' | 'CUSTOM'>('ALL');
@@ -287,12 +316,14 @@ export class ExpensesComponent implements OnInit {
     const q = this.searchTerm().trim().toLowerCase();
     const cf = this.categoryFilter();
     const bf = this.branchFilter();
+    const sf = this.staffFilter();
     const from = this.fromDate() ? new Date(this.fromDate() + 'T00:00:00').getTime() : null;
     const to = this.toDate() ? new Date(this.toDate() + 'T23:59:59.999').getTime() : null;
     return this.data().filter((e) => {
       if (cf !== 'ALL' && e.category !== cf) return false;
       if (bf === 'NONE' && e.branchId) return false;
       if (bf !== 'ALL' && bf !== 'NONE' && e.branchId !== bf) return false;
+      if (sf !== 'ALL' && e.staffId !== sf) return false;
       const t = new Date(e.expenseDate).getTime();
       if (from !== null && t < from) return false;
       if (to !== null && t > to) return false;
@@ -316,6 +347,7 @@ export class ExpensesComponent implements OnInit {
   ngOnInit() {
     this.reload();
     this.branchesApi.list().subscribe({ next: (bs) => this.branches.set(bs), error: () => {} });
+    this.staffApi.list(true).subscribe({ next: (st) => this.staff.set(st), error: () => {} });
   }
 
   goTo(p: number) {
@@ -327,6 +359,7 @@ export class ExpensesComponent implements OnInit {
 
   onCategoryFilter(v: CategoryFilter) { this.categoryFilter.set(v); this.page.set(1); }
   onBranchFilter(v: 'ALL' | 'NONE' | string) { this.branchFilter.set(v); this.page.set(1); }
+  onStaffFilter(v: 'ALL' | string) { this.staffFilter.set(v); this.page.set(1); }
 
   setFrom(v: string) { this.fromDate.set(v); this.page.set(1); }
   setTo(v: string) { this.toDate.set(v); this.page.set(1); }
@@ -351,7 +384,7 @@ export class ExpensesComponent implements OnInit {
   exportCsv() {
     const rows = this.filtered();
     if (!rows.length) return;
-    const headers = ['Date', 'Title', 'Category', 'Branch', 'Vendor', 'Method', 'Amount', 'Notes'];
+    const headers = ['Date', 'Title', 'Category', 'Branch', 'Staff', 'Vendor', 'Method', 'Amount', 'Notes'];
     const esc = (v: unknown) => {
       const s = v == null ? '' : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -361,13 +394,14 @@ export class ExpensesComponent implements OnInit {
       e.title,
       this.categoryLabel(e.category),
       e.branch?.name ?? 'Tenant-wide',
+      e.staff?.fullName ?? '',
       e.vendor ?? '',
       e.paymentMethod ?? '',
       e.amount,
       e.notes ?? '',
     ].map(esc).join(','));
     const total = rows.reduce((s, e) => s + Number(e.amount ?? 0), 0);
-    body.push(['', '', '', '', '', 'TOTAL', total, ''].map(esc).join(','));
+    body.push(['', '', '', '', '', '', 'TOTAL', total, ''].map(esc).join(','));
 
     const csv = '﻿' + [headers.join(','), ...body].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -411,6 +445,7 @@ export class ExpensesComponent implements OnInit {
       branchId: e.branchId ?? '',
       paymentMethod: e.paymentMethod ?? '',
       vendor: e.vendor ?? '',
+      staffId: e.staffId ?? '',
       notes: e.notes ?? '',
     };
     this.editorOpen.set(true);
@@ -424,6 +459,7 @@ export class ExpensesComponent implements OnInit {
 
   save() {
     if (!this.isValid()) return;
+    const id = this.editingId();
     const payload: CreateExpenseDto = {
       title: this.form.title.trim(),
       category: this.form.category,
@@ -432,10 +468,12 @@ export class ExpensesComponent implements OnInit {
       branchId: this.form.branchId || undefined,
       paymentMethod: this.form.paymentMethod || undefined,
       vendor: this.form.vendor?.trim() || undefined,
+      // On create, omit when empty (the API validates staffId as a UUID).
+      // On edit, send '' so the API clears a previously-set attribution.
+      staffId: this.form.staffId || (id ? '' : undefined),
       notes: this.form.notes?.trim() || undefined,
     };
     this.busy.set(true);
-    const id = this.editingId();
     const req = id ? this.api.update(id, payload) : this.api.create(payload);
     req.subscribe({
       next: () => {
@@ -463,10 +501,15 @@ export class ExpensesComponent implements OnInit {
     this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? fallback));
   }
 
+  staffName(id: string | null): string {
+    if (!id) return '—';
+    return this.staff().find((s) => s.id === id)?.fullName ?? '—';
+  }
+
   private blankForm(): CreateExpenseDto {
     return {
       title: '', category: 'MISC', amount: 0, expenseDate: this.todayIso(),
-      branchId: '', paymentMethod: '', vendor: '', notes: '',
+      branchId: '', paymentMethod: '', vendor: '', staffId: '', notes: '',
     };
   }
   private blur() { (document.activeElement as HTMLElement | null)?.blur(); }

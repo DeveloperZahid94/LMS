@@ -1,12 +1,14 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   TiffinApiService, TiffinSubscription, TiffinStats, TiffinStatus,
   TiffinMealType, TiffinMealPlan,
 } from './tiffin.service';
 import { ToastService } from '../../core/services/toast.service';
+import { StaffApiService, Staff } from '../../core/services/staff.service';
+import { ExportColumn, exportCsv, exportPdf, fmtDate } from '../../shared/utils/export.util';
 
 type StatusFilter = 'ALL' | TiffinStatus;
 
@@ -61,6 +63,16 @@ type StatusFilter = 'ALL' | TiffinStatus;
           <button *ngFor="let f of statusFilters" class="join-item btn btn-sm"
                   [class.btn-active]="statusFilter() === f.value"
                   (click)="statusFilter.set(f.value); page.set(1)">{{ f.label }}</button>
+        </div>
+        <div class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="btn btn-sm btn-outline gap-1" [class.btn-disabled]="filtered().length === 0">
+            ⤓ Export
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+          </div>
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 mt-1 w-44 p-2 border border-base-300">
+            <li><a (click)="export('csv')"><span>📄</span> Excel / CSV</a></li>
+            <li><a (click)="export('pdf')"><span>🖨</span> PDF</a></li>
+          </ul>
         </div>
         <button class="btn btn-sm btn-ghost btn-square" (click)="reload()" title="Refresh">⟳</button>
       </div>
@@ -226,8 +238,20 @@ type StatusFilter = 'ALL' | TiffinStatus;
         <h3 class="font-bold text-lg">🛵 Assign delivery</h3>
         <p class="text-sm opacity-70 mt-1">Delivery person for <strong>{{ t.student?.fullName }}</strong>.</p>
         <label class="form-control mt-3">
-          <div class="label py-1"><span class="label-text">Delivery person name</span></div>
-          <input class="input input-bordered input-sm" [(ngModel)]="assignName" placeholder="e.g. Ramesh Kumar" />
+          <div class="label py-1 justify-between">
+            <span class="label-text">Delivery person (staff)</span>
+            <a class="link link-primary text-xs no-underline hover:underline" (click)="goAddStaff()">+ Add new staff</a>
+          </div>
+          <select class="select select-bordered select-sm" [(ngModel)]="assignStaffId" (ngModelChange)="onPickStaff($event)">
+            <option value="">— Select staff —</option>
+            <option *ngFor="let s of staff()" [value]="s.id">{{ s.fullName }}{{ s.phone ? ' · ' + s.phone : '' }}</option>
+          </select>
+          <div class="label py-0" *ngIf="staff().length === 0">
+            <span class="label-text-alt opacity-60">No staff yet — use “Add new staff”.</span>
+          </div>
+          <div class="label py-0" *ngIf="assignName && !assignStaffId">
+            <span class="label-text-alt opacity-60">Current: {{ assignName }}</span>
+          </div>
         </label>
         <label class="form-control mt-2">
           <div class="label py-1"><span class="label-text">Phone (optional)</span></div>
@@ -349,6 +373,11 @@ type StatusFilter = 'ALL' | TiffinStatus;
 export class TiffinComponent implements OnInit {
   private api = inject(TiffinApiService);
   private toast = inject(ToastService);
+  private staffApi = inject(StaffApiService);
+  private router = inject(Router);
+
+  staff = signal<Staff[]>([]);
+  assignStaffId = '';
 
   data = signal<TiffinSubscription[]>([]);
   stats = signal<TiffinStats | null>(null);
@@ -415,7 +444,11 @@ export class TiffinComponent implements OnInit {
     return Math.max(0, Math.round((end - start) / (24 * 3600 * 1000)));
   });
 
-  ngOnInit() { this.reload(); }
+  ngOnInit() {
+    this.reload();
+    // Delivery people are picked from STAFF-role members only (not admins).
+    this.staffApi.list(true).subscribe({ next: (s) => this.staff.set(s.filter((m) => m.role === 'STAFF')), error: () => {} });
+  }
 
   goTo(p: number) {
     const tp = this.totalPages();
@@ -447,7 +480,59 @@ export class TiffinComponent implements OnInit {
   // ----- open modals -----
   openPause(t: TiffinSubscription) { this.pauseDate = this.todayIso(); this.pauseReason = ''; this.pausing.set(t); this.blur(); }
   openResume(t: TiffinSubscription) { this.resumeDate = this.todayIso(); this.resuming.set(t); this.blur(); }
-  openAssign(t: TiffinSubscription) { this.assignName = t.deliveryAssignee ?? ''; this.assignPhone = t.deliveryPhone ?? ''; this.assigning.set(t); this.blur(); }
+  openAssign(t: TiffinSubscription) {
+    this.assignName = t.deliveryAssignee ?? '';
+    this.assignPhone = t.deliveryPhone ?? '';
+    // Preselect the matching staff member if the current assignee is one.
+    this.assignStaffId = this.staff().find((s) => s.fullName === t.deliveryAssignee)?.id ?? '';
+    this.assigning.set(t); this.blur();
+  }
+
+  /** Fill the assignee name/phone from the picked staff member. */
+  onPickStaff(id: string) {
+    const s = this.staff().find((x) => x.id === id);
+    this.assignName = s?.fullName ?? '';
+    this.assignPhone = s?.phone ?? '';
+  }
+
+  /** Jump to Settings → Staff to add a new team member. */
+  goAddStaff() {
+    this.router.navigate(['/settings'], { queryParams: { section: 'staff' } });
+  }
+
+  /** Export the currently filtered subscriptions (meal plan + delivery + dues) to Excel/CSV or PDF. */
+  export(kind: 'csv' | 'pdf') {
+    (document.activeElement as HTMLElement | null)?.blur();
+    const rows = this.filtered();
+    if (!rows.length) { this.toast.info('Nothing to export for the current filter.'); return; }
+    const cols: ExportColumn<TiffinSubscription>[] = [
+      { header: 'Student',        value: (t) => t.student?.fullName ?? '' },
+      { header: 'Code',           value: (t) => t.student?.code ?? '' },
+      { header: 'Phone',          value: (t) => t.student?.phone ?? '' },
+      { header: 'Branch',         value: (t) => t.branch?.name ?? '' },
+      { header: 'Meal type',      value: (t) => t.mealType === 'VEG' ? 'Veg' : 'Non-veg' },
+      { header: 'Meal plan',      value: (t) => this.mealPlanLabel(t.mealPlan) },
+      { header: 'Status',         value: (t) => t.status },
+      { header: 'Monthly rate',   value: (t) => t.monthlyRate ?? 0 },
+      { header: 'Paid',           value: (t) => t.paidAmount ?? 0 },
+      { header: 'Balance due',    value: (t) => t.balance ?? 0 },
+      { header: 'Start date',     value: (t) => fmtDate(t.startDate) },
+      { header: 'Next due',       value: (t) => fmtDate(t.nextDueDate) },
+      { header: 'Paused days',    value: (t) => t.pausedDays ?? 0 },
+      { header: 'Delivery person',value: (t) => t.deliveryAssignee ?? '' },
+      { header: 'Delivery phone', value: (t) => t.deliveryPhone ?? '' },
+      { header: 'Notes',          value: (t) => t.notes ?? '' },
+    ];
+    const sf = this.statusFilter();
+    const meta = {
+      title: 'Tiffin subscriptions',
+      subtitle: `${sf === 'ALL' ? 'All statuses' : sf}${this.search.trim() ? ` · search: "${this.search.trim()}"` : ''} · ${rows.length} record${rows.length === 1 ? '' : 's'}`,
+      fileSlug: 'tiffin-subscriptions',
+    };
+    if (kind === 'csv') exportCsv(rows, cols, meta);
+    else exportPdf(rows, cols, meta);
+    this.toast.success(`Exported ${rows.length} subscription${rows.length === 1 ? '' : 's'}`);
+  }
   openDetail(t: TiffinSubscription) {
     this.detail.set(t); this.blur();
     // Refresh full detail (pauses) in case the row is stale.

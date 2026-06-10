@@ -45,6 +45,11 @@ export class CreateExpenseDto {
   @IsString()
   vendor?: string;
 
+  /** Optional staff member this expense is attributed to (e.g. SALARY recipient). */
+  @IsOptional()
+  @IsUUID()
+  staffId?: string;
+
   @IsOptional()
   @IsString()
   notes?: string;
@@ -58,6 +63,8 @@ export class UpdateExpenseDto {
   @IsOptional() @IsUUID()                              branchId?: string;
   @IsOptional() @IsString()                            paymentMethod?: string;
   @IsOptional() @IsString()                            vendor?: string;
+  /** Pass an empty string to clear the attribution. */
+  @IsOptional() @IsString()                            staffId?: string;
   @IsOptional() @IsString()                            notes?: string;
 }
 
@@ -65,6 +72,10 @@ export class ExpenseListQueryDto {
   @IsOptional()
   @IsUUID()
   branchId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  staffId?: string;
 
   @IsOptional()
   @IsEnum(ExpenseCategory)

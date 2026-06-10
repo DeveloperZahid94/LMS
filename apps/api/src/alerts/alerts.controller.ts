@@ -1,6 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AlertsService } from './alerts.service';
+import { AlertsService, NotifyChannel, NotifyRecipient } from './alerts.service';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@lms/shared';
 
@@ -19,5 +19,10 @@ export class AlertsController {
     @Query('dateTo') dateTo?: string,
   ) {
     return this.service.list({ branchId, search, dateFrom, dateTo });
+  }
+
+  @Post('notify')
+  notify(@Body() dto: { channel: NotifyChannel; recipients: NotifyRecipient[] }) {
+    return this.service.notify(dto);
   }
 }

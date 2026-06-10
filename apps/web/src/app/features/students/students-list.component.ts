@@ -5,8 +5,10 @@ import { Router, RouterLink } from '@angular/router';
 import { debounceTime, Subject } from 'rxjs';
 import { StudentsApiService, ListStudentsQuery, StudentRow } from './students.service';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
 import { ExportToolbarComponent } from '../../shared/components/export-toolbar.component';
 import { ExportColumn, exportCsv, exportPdf, fmtDate } from '../../shared/utils/export.util';
+import { printStudentIdCard } from '../../shared/utils/id-card.util';
 
 type SortField = NonNullable<ListStudentsQuery['sortBy']>;
 type ViewMode = 'list' | 'grid';
@@ -197,7 +199,7 @@ const AVATAR_PALETTE = [
                     <li><a [routerLink]="['/students', s.id]"><span>✎</span> Edit</a></li>
                     <li class="menu-title text-xs">Actions</li>
                     <li><a (click)="comingSoon('Send reminder')"><span>🔔</span> Send reminder</a></li>
-                    <li><a (click)="comingSoon('Print profile')"><span>🖨</span> Print profile</a></li>
+                    <li><a (click)="printIdCard(s)"><span>🖨</span> Print ID card</a></li>
                     <li><a class="text-error" (click)="confirmDelete(s)"><span>🗑</span> Delete</a></li>
                   </ul>
                 </div>
@@ -330,6 +332,7 @@ export class StudentsListComponent implements OnInit {
   private api = inject(StudentsApiService);
   private toast = inject(ToastService);
   private router = inject(Router);
+  private auth = inject(AuthService);
 
   data = signal<StudentRow[]>([]);
   total = signal(0);
@@ -461,6 +464,34 @@ export class StudentsListComponent implements OnInit {
   comingSoon(label: string) {
     (document.activeElement as HTMLElement | null)?.blur();
     this.toast.warning(`${label} — integration coming soon. Contact Support to enable.`);
+  }
+
+  /** Fetch the full student record (the list row is lightweight) and print a QR ID card. */
+  printIdCard(s: StudentRow) {
+    (document.activeElement as HTMLElement | null)?.blur();
+    const slug = this.auth.user()?.tenantSlug ?? '';
+    const orgName = slug
+      ? slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : 'LMS Platform';
+    this.api.get(s.id).subscribe({
+      next: (full) => {
+        const gender = full.gender ? full.gender.charAt(0) + full.gender.slice(1).toLowerCase() : null;
+        printStudentIdCard(
+          {
+            fullName: full.fullName,
+            code: full.code,
+            phone: full.phone,
+            photoUrl: full.photoUrl,
+            qrCode: full.qrCode,
+            examTarget: full.examTarget,
+            expiresAt: full.expiresAt,
+            gender,
+          },
+          { name: orgName, tagline: 'Library & Study Cabin' },
+        ).catch(() => this.toast.error('Could not generate the ID card'));
+      },
+      error: () => this.toast.error('Could not load student for printing'),
+    });
   }
 
   initials(name: string): string {

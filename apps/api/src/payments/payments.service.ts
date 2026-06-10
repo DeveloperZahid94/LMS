@@ -118,11 +118,17 @@ export class PaymentsService {
       this.prisma.payment.count({ where }),
     ]);
 
-    // Hydrate each row with the student's monthly fee + cycle balance (fee − this payment).
+    // Hydrate each row with the per-SERVICE remaining balance after that payment.
+    // `balance` = the service's monthly rate minus the cumulative amount paid
+    // toward that same service up to and including this payment. This keeps each
+    // service's balance independent (a tiffin payment never shows the cabin fee).
     const studentIds = [...new Set(data.map((p) => p.studentId))];
-    const monthlyByStudent = new Map<string, number>();
+    const seatExp = new Map<string, number>();
+    const pgExp = new Map<string, number>();
+    const tiffinExp = new Map<string, number>();
+    const cumById = new Map<string, number>(); // payment id → running paid for its (student, purpose)
     if (studentIds.length) {
-      const [seats, pgs] = await Promise.all([
+      const [seats, pgs, tiffins, allPaid] = await Promise.all([
         this.prisma.seatAssignment.findMany({
           where: { tenantId, studentId: { in: studentIds }, status: { in: ['TEMPORARY', 'CONFIRMED'] } },
           select: { studentId: true, monthlyRate: true },
@@ -131,16 +137,42 @@ export class PaymentsService {
           where: { tenantId, studentId: { in: studentIds }, status: 'ACTIVE' },
           select: { studentId: true, monthlyRate: true },
         }),
+        (this.prisma as any).tiffinSubscription.findMany({
+          where: { tenantId, studentId: { in: studentIds }, status: { in: ['ACTIVE', 'PAUSED'] } },
+          select: { studentId: true, monthlyRate: true },
+        }),
+        // All PAID payments for these students, oldest first, to build a running total per service.
+        this.prisma.payment.findMany({
+          where: { tenantId, studentId: { in: studentIds }, status: 'PAID', deletedAt: null },
+          select: { id: true, studentId: true, purpose: true, amount: true, discount: true, createdAt: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        }),
       ]);
-      for (const a of [...seats, ...pgs]) {
-        const prev = monthlyByStudent.get(a.studentId) ?? 0;
-        monthlyByStudent.set(a.studentId, prev + (a.monthlyRate ? Number(a.monthlyRate) : 0));
+      const add = (m: Map<string, number>, sid: string, rate: any) =>
+        m.set(sid, (m.get(sid) ?? 0) + (rate ? Number(rate) : 0));
+      for (const a of seats) add(seatExp, a.studentId, a.monthlyRate);
+      for (const a of pgs as any[]) add(pgExp, a.studentId, a.monthlyRate);
+      for (const t of tiffins as any[]) add(tiffinExp, t.studentId, t.monthlyRate);
+
+      const runner = new Map<string, number>();
+      for (const p of allPaid as any[]) {
+        const key = `${p.studentId}|${p.purpose}`;
+        const next = (runner.get(key) ?? 0) + Number(p.amount) + Number(p.discount ?? 0);
+        runner.set(key, next);
+        cumById.set(p.id, next);
       }
     }
+    const expectedFor = (sid: string, purpose: string): number =>
+      purpose === 'SEAT' ? (seatExp.get(sid) ?? 0)
+      : purpose === 'PG' ? (pgExp.get(sid) ?? 0)
+      : purpose === 'TIFFIN' ? (tiffinExp.get(sid) ?? 0)
+      : 0; // GENERAL has no single service to balance against
     const hydrated = data.map((p) => {
-      const monthlyFee = monthlyByStudent.get(p.studentId) ?? 0;
-      const settled = Number(p.amount) + Number((p as any).discount ?? 0);
-      return { ...p, discount: Number((p as any).discount ?? 0), monthlyFee, balance: Math.max(0, monthlyFee - settled) };
+      const purpose = (p as any).purpose as string;
+      const monthlyFee = expectedFor(p.studentId, purpose);
+      const cumulative = cumById.get(p.id) ?? (Number(p.amount) + Number((p as any).discount ?? 0));
+      const balance = monthlyFee > 0 ? Math.max(0, monthlyFee - cumulative) : 0;
+      return { ...p, discount: Number((p as any).discount ?? 0), monthlyFee, balance };
     });
     return { data: hydrated, total, page, limit };
   }
@@ -161,13 +193,13 @@ export class PaymentsService {
     const payments = await this.prisma.payment.findMany({
       where: { tenantId, studentId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, amount: true, discount: true, discountReason: true, method: true, status: true, paidAt: true, createdAt: true, notes: true },
+      select: { id: true, amount: true, discount: true, discountReason: true, method: true, status: true, purpose: true, paidAt: true, createdAt: true, notes: true },
     });
     const totalPaid = payments
       .filter((p) => p.status === PaymentStatus.PAID)
       .reduce((s, p) => s + Number(p.amount), 0);
 
-    const [seats, pgs] = await Promise.all([
+    const [seats, pgs, tiffins] = await Promise.all([
       this.prisma.seatAssignment.findMany({
         where: { tenantId, studentId, status: { in: ['TEMPORARY', 'CONFIRMED'] } },
         include: { seat: { select: { code: true } } },
@@ -176,7 +208,40 @@ export class PaymentsService {
         where: { tenantId, studentId, status: 'ACTIVE' },
         include: { room: { select: { roomNumber: true } } },
       }),
+      (this.prisma as any).tiffinSubscription.findMany({
+        where: { tenantId, studentId, status: { in: ['ACTIVE', 'PAUSED'] } },
+      }),
     ]);
+
+    // ----- Per-service dues breakdown -----
+    // Seat & PG: expected rate minus PAID payments tagged with that purpose.
+    // Tiffin: authoritative from the subscription's own paid/balance ledger.
+    const paidFor = (purpose: string) => payments
+      .filter((p) => p.status === PaymentStatus.PAID && (p as any).purpose === purpose)
+      .reduce((s, p) => s + Number(p.amount) + Number(p.discount ?? 0), 0);
+
+    const seatExpected = seats.reduce((s, a) => s + (a.monthlyRate ? Number(a.monthlyRate) : 0), 0);
+    const pgExpected = pgs.reduce((s: number, a: any) => s + (a.monthlyRate ? Number(a.monthlyRate) : 0), 0);
+    const tiffinExpected = tiffins.reduce((s: number, t: any) => s + Number(t.monthlyRate ?? 0), 0);
+    const tiffinPaid = tiffins.reduce((s: number, t: any) => s + Number(t.paidAmount ?? 0), 0);
+    const tiffinDueSigned = tiffins.reduce((s: number, t: any) => s + Number(t.balance ?? 0), 0);
+
+    const seatPaid = paidFor('SEAT');
+    const pgPaid = paidFor('PG');
+    const generalPaid = paidFor('GENERAL');
+
+    const seatDue = Math.max(0, seatExpected - seatPaid);
+    const pgDue = Math.max(0, pgExpected - pgPaid);
+    const tiffinDue = Math.max(0, tiffinDueSigned);
+    const totalDue = Math.max(0, seatDue + pgDue + tiffinDue - generalPaid);
+
+    const breakdown = {
+      seat:   { expected: seatExpected,   paid: seatPaid,   due: seatDue,   active: seats.length > 0 },
+      pg:     { expected: pgExpected,     paid: pgPaid,     due: pgDue,     active: pgs.length > 0 },
+      tiffin: { expected: tiffinExpected, paid: tiffinPaid, due: tiffinDue, active: tiffins.length > 0 },
+      generalPaid,
+      totalDue,
+    };
 
     const allocations = [
       ...seats.map((a) => ({
@@ -200,6 +265,7 @@ export class PaymentsService {
       totalPaid,
       monthlyTotal,
       allocations,
+      breakdown,
     };
   }
 
@@ -244,6 +310,7 @@ export class PaymentsService {
         discountReason: dto.discountReason?.trim() || null,
         method: dto.method,
         status: PaymentStatus.PAID,
+        purpose: (dto.purpose ?? 'GENERAL') as any,
         paidAt: new Date(),
         notes: dto.notes ?? null,
       },
@@ -256,14 +323,27 @@ export class PaymentsService {
     });
 
     if (dto.nextDueDate) {
-      await this.prisma.seatAssignment.updateMany({
-        where: {
-          tenantId,
-          studentId: dto.studentId,
-          status: { in: ['TEMPORARY', 'CONFIRMED'] },
-        },
-        data: { nextDueDate: new Date(dto.nextDueDate) },
-      });
+      const due = new Date(dto.nextDueDate);
+      const purpose = dto.purpose ?? 'GENERAL';
+      // Advance the next-due date on the SAME service the payment is for — a PG or
+      // tiffin payment must not move the cabin/seat due date (and vice-versa).
+      if (purpose === 'PG') {
+        await this.prisma.pgRoomAssignment.updateMany({
+          where: { tenantId, studentId: dto.studentId, status: 'ACTIVE' },
+          data: { nextDueDate: due },
+        });
+      } else if (purpose === 'TIFFIN') {
+        await (this.prisma as any).tiffinSubscription.updateMany({
+          where: { tenantId, studentId: dto.studentId, status: { in: ['ACTIVE', 'PAUSED'] } },
+          data: { nextDueDate: due },
+        });
+      } else {
+        // SEAT (and legacy GENERAL) → seat allocations.
+        await this.prisma.seatAssignment.updateMany({
+          where: { tenantId, studentId: dto.studentId, status: { in: ['TEMPORARY', 'CONFIRMED'] } },
+          data: { nextDueDate: due },
+        });
+      }
     }
 
     await this.notifyReceipt(payment.id);

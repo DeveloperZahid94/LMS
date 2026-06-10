@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
-import { PaymentMethod } from '@lms/shared';
+import { PaymentMethod, PaymentPurpose } from '@lms/shared';
 
 export class CreatePaymentDto {
   @IsUUID()
@@ -28,6 +28,11 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsUUID()
   enrollmentId?: string;
+
+  /** Service this payment is for — defaults to GENERAL when omitted. */
+  @IsOptional()
+  @IsEnum(PaymentPurpose)
+  purpose?: PaymentPurpose;
 
   @IsOptional()
   @IsString()

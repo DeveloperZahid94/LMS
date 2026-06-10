@@ -37,6 +37,10 @@ const SOURCES: { value: PaymentSource; label: string }[] = [
 const SOURCE_TAG: Record<PaymentSource, string> = {
   CABIN: '[Cabin]', PG: '[PG]', TIFFIN: '[Tiffin]', GENERAL: '',
 };
+/** Maps the chosen source to the stored payment purpose (drives per-service dues). */
+const SOURCE_PURPOSE: Record<PaymentSource, 'SEAT' | 'PG' | 'TIFFIN' | 'GENERAL'> = {
+  CABIN: 'SEAT', PG: 'PG', TIFFIN: 'TIFFIN', GENERAL: 'GENERAL',
+};
 
 @Component({
   selector: 'lms-payments',
@@ -682,6 +686,7 @@ export class PaymentsComponent implements OnInit {
       discountReason: discount > 0 ? (v.discountReason?.trim() || undefined) : undefined,
       method: v.method!,
       notes,
+      purpose: SOURCE_PURPOSE[v.source as PaymentSource],
       nextDueDate: v.nextDueDate || undefined,
       applyToAccount: v.applyToAccount || undefined,
     }).subscribe({

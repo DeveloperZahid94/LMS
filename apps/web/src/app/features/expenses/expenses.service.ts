@@ -16,6 +16,8 @@ export interface Expense {
   expenseDate: string;
   paymentMethod: string | null;
   vendor: string | null;
+  staffId: string | null;
+  staff: { id: string; fullName: string; role: string } | null;
   notes: string | null;
   branch: { id: string; name: string; code: string } | null;
   createdAt: string;
@@ -39,6 +41,7 @@ export interface CreateExpenseDto {
   branchId?: string;
   paymentMethod?: string;
   vendor?: string;
+  staffId?: string;
   notes?: string;
 }
 
@@ -49,9 +52,10 @@ export class ExpensesApiService {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/expenses`;
 
-  list(opts: { branchId?: string; category?: ExpenseCategory; from?: string; to?: string } = {}) {
+  list(opts: { branchId?: string; staffId?: string; category?: ExpenseCategory; from?: string; to?: string } = {}) {
     let params = new HttpParams();
     if (opts.branchId) params = params.set('branchId', opts.branchId);
+    if (opts.staffId)  params = params.set('staffId', opts.staffId);
     if (opts.category) params = params.set('category', opts.category);
     if (opts.from)     params = params.set('from', opts.from);
     if (opts.to)       params = params.set('to', opts.to);

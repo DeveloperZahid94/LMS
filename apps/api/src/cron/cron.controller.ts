@@ -1,6 +1,7 @@
 import { Controller, ForbiddenException, Get, Headers } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { DueAlertsJob } from './due-alerts.job';
+import { DueRemindersJob } from './due-reminders.job';
 import { Public } from '../auth/decorators/public.decorator';
 
 /**
@@ -12,12 +13,22 @@ import { Public } from '../auth/decorators/public.decorator';
 @Controller('cron')
 @Public()
 export class CronController {
-  constructor(private dueAlerts: DueAlertsJob) {}
+  constructor(
+    private dueAlerts: DueAlertsJob,
+    private dueReminders: DueRemindersJob,
+  ) {}
 
   @Get('due-alerts')
   async runDueAlerts(@Headers('authorization') auth?: string) {
     this.assertCron(auth);
     return this.dueAlerts.run();
+  }
+
+  /** Automatic upcoming-payment email reminders (14/7/3/1 days before due). */
+  @Get('due-reminders')
+  async runDueReminders(@Headers('authorization') auth?: string) {
+    this.assertCron(auth);
+    return this.dueReminders.run();
   }
 
   @Get('attendance-rollover')

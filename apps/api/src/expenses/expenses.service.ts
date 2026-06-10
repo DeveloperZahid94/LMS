@@ -16,6 +16,7 @@ export class ExpensesService {
     const tenantId = this.tenantCtx.tenantId;
     const where: any = { tenantId };
     if (q.branchId) where.branchId = q.branchId;
+    if (q.staffId) where.staffId = q.staffId;
     if (q.category) where.category = q.category;
     if (q.from || q.to) {
       where.expenseDate = {};
@@ -26,7 +27,10 @@ export class ExpensesService {
     const rows = await this.prisma.expense.findMany({
       where,
       orderBy: { expenseDate: 'desc' },
-      include: { branch: { select: { id: true, name: true, code: true } } },
+      include: {
+        branch: { select: { id: true, name: true, code: true } },
+        staff: { select: { id: true, fullName: true, role: true } },
+      },
     });
     return rows.map((r) => this.shape(r));
   }
@@ -78,7 +82,10 @@ export class ExpensesService {
     const tenantId = this.tenantCtx.tenantId;
     const row = await this.prisma.expense.findFirst({
       where: { id, tenantId },
-      include: { branch: { select: { id: true, name: true, code: true } } },
+      include: {
+        branch: { select: { id: true, name: true, code: true } },
+        staff: { select: { id: true, fullName: true, role: true } },
+      },
     });
     if (!row) throw new NotFoundException('Expense not found');
     return this.shape(row);
@@ -91,6 +98,7 @@ export class ExpensesService {
       const branch = await this.prisma.branch.findFirst({ where: { id: dto.branchId, tenantId } });
       if (!branch) throw new BadRequestException('Branch not found in this tenant');
     }
+    if (dto.staffId) await this.assertStaff(tenantId, dto.staffId);
 
     const created = await this.prisma.expense.create({
       data: {
@@ -102,9 +110,13 @@ export class ExpensesService {
         expenseDate: dto.expenseDate ? new Date(dto.expenseDate) : new Date(),
         paymentMethod: dto.paymentMethod ?? null,
         vendor: dto.vendor?.trim() || null,
+        staffId: dto.staffId ?? null,
         notes: dto.notes ?? null,
       },
-      include: { branch: { select: { id: true, name: true, code: true } } },
+      include: {
+        branch: { select: { id: true, name: true, code: true } },
+        staff: { select: { id: true, fullName: true, role: true } },
+      },
     });
     await this.audit.record({
       tenantId, userId: this.tenantCtx.userId,
@@ -122,6 +134,7 @@ export class ExpensesService {
       const branch = await this.prisma.branch.findFirst({ where: { id: dto.branchId, tenantId } });
       if (!branch) throw new BadRequestException('Branch not found in this tenant');
     }
+    if (dto.staffId) await this.assertStaff(tenantId, dto.staffId);
 
     const updated = await this.prisma.expense.update({
       where: { id },
@@ -133,9 +146,13 @@ export class ExpensesService {
         ...(dto.branchId !== undefined && { branchId: dto.branchId || null }),
         ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod || null }),
         ...(dto.vendor !== undefined && { vendor: dto.vendor?.trim() || null }),
+        ...(dto.staffId !== undefined && { staffId: dto.staffId || null }),
         ...(dto.notes !== undefined && { notes: dto.notes || null }),
       },
-      include: { branch: { select: { id: true, name: true, code: true } } },
+      include: {
+        branch: { select: { id: true, name: true, code: true } },
+        staff: { select: { id: true, fullName: true, role: true } },
+      },
     });
     await this.audit.record({
       tenantId, userId: this.tenantCtx.userId,
@@ -156,6 +173,12 @@ export class ExpensesService {
     return { id, deleted: true };
   }
 
+  /** Ensures the given staff id is a real user in this tenant. */
+  private async assertStaff(tenantId: string, staffId: string) {
+    const staff = await this.prisma.user.findFirst({ where: { id: staffId, tenantId } });
+    if (!staff) throw new BadRequestException('Staff member not found in this tenant');
+  }
+
   private shape(r: any) {
     return {
       id: r.id,
@@ -167,6 +190,8 @@ export class ExpensesService {
       expenseDate: r.expenseDate,
       paymentMethod: r.paymentMethod ?? null,
       vendor: r.vendor ?? null,
+      staffId: r.staffId ?? null,
+      staff: r.staff ?? null,
       notes: r.notes ?? null,
       branch: r.branch ?? null,
       createdAt: r.createdAt,

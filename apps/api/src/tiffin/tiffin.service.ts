@@ -244,6 +244,7 @@ export class TiffinService {
         amount,
         method: (dto.method as any) ?? PaymentMethod.CASH,
         status: PaymentStatus.PAID,
+        purpose: 'TIFFIN' as any,
         paidAt: new Date(),
         notes: dto.notes ? `[Tiffin] ${dto.notes}` : '[Tiffin] payment',
       },

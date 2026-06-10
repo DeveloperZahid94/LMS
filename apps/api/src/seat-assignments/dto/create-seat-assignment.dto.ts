@@ -21,4 +21,9 @@ export class CreateSeatAssignmentDto {
   @IsOptional()
   @IsISO8601()
   nextDueDate?: string;
+
+  /** Staff member who handled this allocation. Defaults to the logged-in user. */
+  @IsOptional()
+  @IsUUID()
+  assignedById?: string;
 }

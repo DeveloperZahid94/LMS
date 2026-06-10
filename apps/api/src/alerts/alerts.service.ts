@@ -1,16 +1,91 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
+import { EmailService } from '../email/email.service';
+import { WHATSAPP_SERVICE, WhatsAppService } from '../integrations/whatsapp.service';
+import { SMS_SERVICE, SmsService } from '../integrations/sms.service';
 
 const DUE_SOON_DAYS = 7;
 const EXPIRING_SOON_DAYS = 7;
+
+export type NotifyChannel = 'EMAIL' | 'SMS' | 'WHATSAPP';
+export interface NotifyRecipient { studentId: string; message: string; subject?: string }
 
 @Injectable()
 export class AlertsService {
   constructor(
     private prisma: PrismaService,
     private tenantCtx: TenantContextService,
+    private email: EmailService,
+    @Inject(WHATSAPP_SERVICE) private whatsapp: WhatsAppService,
+    @Inject(SMS_SERVICE) private sms: SmsService,
   ) {}
+
+  /**
+   * Send a reminder to one or many students over the chosen channel.
+   * Contact details (email / phone) are read server-side from the student
+   * record — the client only sends the studentId + message text. Returns a
+   * per-channel summary so the UI can report how many actually went out.
+   */
+  async notify(dto: { channel: NotifyChannel; recipients: NotifyRecipient[] }) {
+    const tenantId = this.tenantCtx.tenantId;
+    const channel = dto.channel;
+    const recipients = dto.recipients ?? [];
+    if (!recipients.length) throw new BadRequestException('No recipients to notify');
+    if (!['EMAIL', 'SMS', 'WHATSAPP'].includes(channel)) throw new BadRequestException('Invalid channel');
+
+    const ids = [...new Set(recipients.map((r) => r.studentId))];
+    const students = await this.prisma.student.findMany({
+      where: { id: { in: ids }, tenantId },
+      select: { id: true, fullName: true, phone: true, email: true },
+    });
+    const byId = new Map(students.map((s) => [s.id, s]));
+
+    // MSG91 credentials live in the tenant's SMS settings (Settings → SMS).
+    let smsCfg: { apiKey?: string; senderId?: string } = {};
+    if (channel === 'SMS') {
+      const rows = await this.prisma.$queryRaw<Array<{ sms: any }>>`
+        SELECT data->'sms' AS sms FROM tenant_settings WHERE "tenantId" = ${tenantId} LIMIT 1
+      `;
+      smsCfg = rows[0]?.sms ?? {};
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const r of recipients) {
+      const stu = byId.get(r.studentId);
+      if (!stu) { failed++; continue; }
+      const body = (r.message ?? '').trim();
+      if (!body) { failed++; continue; }
+      try {
+        if (channel === 'EMAIL') {
+          if (!stu.email) { failed++; errors.push(`${stu.fullName}: no email on file`); continue; }
+          const res = await this.email.send({
+            tenantId,
+            to: stu.email,
+            subject: r.subject?.trim() || 'Reminder',
+            html: `<p style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escapeHtml(body)}</p>`,
+          });
+          if (res.ok) sent++; else { failed++; if (res.error) errors.push(`${stu.fullName}: ${res.error}`); }
+        } else if (channel === 'WHATSAPP') {
+          if (!stu.phone) { failed++; errors.push(`${stu.fullName}: no phone`); continue; }
+          const res = await this.whatsapp.send({ to: stu.phone, body });
+          if (res.status === 'failed') { failed++; errors.push(`${stu.fullName}: WhatsApp send failed`); } else sent++;
+        } else {
+          if (!stu.phone) { failed++; errors.push(`${stu.fullName}: no phone`); continue; }
+          const res = await this.sms.send({ to: stu.phone, body, apiKey: smsCfg.apiKey, senderId: smsCfg.senderId });
+          if (res.status === 'failed') { failed++; if (res.error) errors.push(`${stu.fullName}: ${res.error}`); } else sent++;
+        }
+      } catch (e: any) {
+        failed++;
+        errors.push(`${stu.fullName}: ${e?.message ?? 'send failed'}`);
+      }
+    }
+
+    return { channel, total: recipients.length, sent, failed, errors: errors.slice(0, 10) };
+  }
 
   /**
    * Returns three buckets of alerts the staff should act on:
@@ -175,4 +250,8 @@ export class AlertsService {
       },
     };
   }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

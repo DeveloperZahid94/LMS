@@ -93,8 +93,10 @@ interface TodayResponse {
                 <div class="font-bold">₹{{ t.totalPaid | number }}</div>
               </div>
               <div class="rounded-lg bg-base-200 p-2">
-                <div class="text-[10px] uppercase tracking-wider opacity-60">Balance</div>
-                <div class="font-bold" [class.text-error]="t.balance > 0">₹{{ t.balance | number }}</div>
+                <div class="text-[10px] uppercase tracking-wider opacity-60">{{ t.balance < 0 ? 'Advance' : 'Balance' }}</div>
+                <div class="font-bold" [class.text-error]="t.balance > 0" [class.text-success]="t.balance < 0">
+                  ₹{{ (t.balance < 0 ? -t.balance : t.balance) | number }}
+                </div>
               </div>
               <div class="rounded-lg bg-base-200 p-2">
                 <div class="text-[10px] uppercase tracking-wider opacity-60">Status</div>
@@ -217,6 +219,8 @@ export class CheckinComponent implements OnInit, OnDestroy {
   reminder = computed<{ level: 'overdue' | 'due' | 'soon'; text: string } | null>(() => {
     const t = this.today();
     if (!t?.nextDueDate) return null;
+    // Nothing owed (settled or in advance/credit) → no reminder, even if a due date has passed.
+    if ((t.balance ?? 0) <= 0) return null;
     const due = new Date(t.nextDueDate);
     const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
     const days = Math.round((new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime() - startOfToday.getTime()) / 86400000);

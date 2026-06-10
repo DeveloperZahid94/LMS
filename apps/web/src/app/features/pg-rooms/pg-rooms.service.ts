@@ -74,6 +74,8 @@ export interface AssignBedDto {
   startDate?: string;
   nextDueDate?: string;
   notes?: string;
+  /** Staff member who handled this allocation. Defaults to the logged-in user. */
+  assignedById?: string;
 }
 
 export interface PgRoomHistoryRow {

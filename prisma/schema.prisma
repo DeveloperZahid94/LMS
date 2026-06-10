@@ -138,6 +138,12 @@ model User {
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
   auditLogs    AuditLog[]
+  // History this staff member handled / is attributed to (set from the
+  // assignment & expense flows). The far side uses SetNull, so removing a staff
+  // member never deletes their past records — it just unlinks them.
+  expensesAttributed   Expense[]          @relation("ExpenseStaff")
+  seatAssignmentsMade  SeatAssignment[]   @relation("SeatAssignmentStaff")
+  pgAssignmentsMade    PgRoomAssignment[] @relation("PgAssignmentStaff")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -272,14 +278,19 @@ model SeatAssignment {
   /// Next installment due date — drives the "overdue" / "due soon" alerts.
   /// Updated whenever staff record a payment from the Payments screen.
   nextDueDate DateTime?
+  /// Staff member who handled this allocation (optional). SetNull so deleting a
+  /// staff member keeps the allocation record intact.
+  assignedById String?
   createdAt   DateTime @default(now())
 
   seat        Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
   student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignedBy  User?    @relation("SeatAssignmentStaff", fields: [assignedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, nextDueDate])
   @@index([tenantId, seatId, status])
   @@index([tenantId, studentId, status])
+  @@index([tenantId, assignedById])
   @@map("seat_assignments")
 }
 
@@ -405,6 +416,9 @@ model Payment {
   currency      String   @default("INR")
   method        PaymentMethod
   status        PaymentStatus @default(PENDING)
+  /// Which service this payment is for — drives per-service (seat/PG/tiffin) dues.
+  /// GENERAL = unallocated; reduces the combined balance but no single service's due.
+  purpose       PaymentPurpose @default(GENERAL)
   // Razorpay refs (null until gateway flow used)
   razorpayOrderId   String? @unique
   razorpayPaymentId String? @unique
@@ -427,7 +441,15 @@ model Payment {
   @@index([tenantId, status])
   @@index([tenantId, branchId, createdAt])
   @@index([tenantId, studentId, createdAt])
+  @@index([tenantId, studentId, purpose])
   @@map("payments")
+}
+
+enum PaymentPurpose {
+  SEAT
+  PG
+  TIFFIN
+  GENERAL
 }
 
 enum PaymentMethod {
@@ -492,15 +514,19 @@ model PgRoomAssignment {
   nextDueDate DateTime?                   // mirrors seat-assignments pattern
   status      PgAssignmentStatus @default(ACTIVE)
   notes       String?
+  /// Staff member who handled this bed allocation (optional). SetNull on delete.
+  assignedById String?
   createdAt   DateTime @default(now())
 
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   room        PgRoom   @relation(fields: [roomId], references: [id], onDelete: Cascade)
   student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignedBy  User?    @relation("PgAssignmentStaff", fields: [assignedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, roomId, status])
   @@index([tenantId, studentId, status])
   @@index([tenantId, nextDueDate])
+  @@index([tenantId, assignedById])
   @@map("pg_room_assignments")
 }
 
@@ -594,16 +620,19 @@ model Expense {
   expenseDate DateTime @default(now())          // when the cost was incurred
   paymentMethod String?                         // CASH | UPI | NETBANKING | CARD | CHEQUE (free-text for flexibility)
   vendor      String?                          // who was paid (landlord, electricity board, staff name…)
+  staffId     String?                          // optional staff this expense is attributed to (e.g. SALARY recipient)
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  staff       User?    @relation("ExpenseStaff", fields: [staffId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, expenseDate])
   @@index([tenantId, category])
   @@index([tenantId, branchId])
+  @@index([tenantId, staffId])
   @@map("expenses")
 }
 

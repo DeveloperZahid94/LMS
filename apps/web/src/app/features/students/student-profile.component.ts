@@ -8,6 +8,8 @@ import { Student } from '@lms/shared';
 import { StudentsApiService } from './students.service';
 import { PaymentsApiService, PaymentSummary } from '../payments/payments.service';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
+import { printStudentIdCard } from '../../shared/utils/id-card.util';
 
 type Tab = 'overview' | 'payments' | 'documents' | 'history' | 'biometric';
 
@@ -29,6 +31,7 @@ interface AttendanceRow {
       <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
         <a routerLink="/students" class="link link-hover text-sm opacity-70">← Students</a>
         <div class="flex gap-2">
+          <button class="btn btn-sm btn-outline" (click)="printIdCard()" [disabled]="!student()">🪪 Print ID card</button>
           <button class="btn btn-sm btn-outline" (click)="resetPassword()" [disabled]="resetting()">
             <span *ngIf="resetting()" class="loading loading-spinner loading-xs"></span>🔑 Reset password
           </button>
@@ -166,6 +169,56 @@ interface AttendanceRow {
               <div class="card bg-base-100 border border-base-300 p-3"><div class="text-[10px] uppercase tracking-wider opacity-60">Payments</div><div class="text-lg font-bold">{{ sum.payments.length }}</div></div>
               <div class="card bg-base-100 border border-base-300 p-3"><div class="text-[10px] uppercase tracking-wider opacity-60">Last payment</div><div class="text-sm font-bold">{{ sum.payments[0] ? (sum.payments[0].paidAt || sum.payments[0].createdAt | date:'dd MMM yy') : '—' }}</div></div>
             </div>
+
+            <!-- ===== Per-service dues breakdown (seat / PG / tiffin) ===== -->
+            <div *ngIf="sum.breakdown as bd" class="card bg-base-100 border border-base-300 shadow-sm mb-4">
+              <div class="card-body p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="font-semibold text-sm">Dues breakdown</h3>
+                  <span class="text-sm">Total due:
+                    <span class="font-bold" [class.text-error]="bd.totalDue > 0" [class.text-success]="bd.totalDue === 0">₹{{ bd.totalDue | number }}</span>
+                  </span>
+                </div>
+                <table class="table table-sm">
+                  <thead>
+                    <tr class="text-[11px] uppercase tracking-wider opacity-50">
+                      <th>Service</th><th class="text-right">Monthly</th><th class="text-right">Paid</th><th class="text-right">Due</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr *ngIf="bd.seat.active || bd.seat.paid > 0">
+                      <td class="font-medium">🪑 Cabin / Seat</td>
+                      <td class="text-right">₹{{ bd.seat.expected | number }}</td>
+                      <td class="text-right text-success">₹{{ bd.seat.paid | number }}</td>
+                      <td class="text-right font-semibold" [class.text-error]="bd.seat.due > 0">₹{{ bd.seat.due | number }}</td>
+                    </tr>
+                    <tr *ngIf="bd.pg.active || bd.pg.paid > 0">
+                      <td class="font-medium">🛏 PG Room</td>
+                      <td class="text-right">₹{{ bd.pg.expected | number }}</td>
+                      <td class="text-right text-success">₹{{ bd.pg.paid | number }}</td>
+                      <td class="text-right font-semibold" [class.text-error]="bd.pg.due > 0">₹{{ bd.pg.due | number }}</td>
+                    </tr>
+                    <tr *ngIf="bd.tiffin.active || bd.tiffin.paid > 0">
+                      <td class="font-medium">🍱 Tiffin</td>
+                      <td class="text-right">₹{{ bd.tiffin.expected | number }}</td>
+                      <td class="text-right text-success">₹{{ bd.tiffin.paid | number }}</td>
+                      <td class="text-right font-semibold" [class.text-error]="bd.tiffin.due > 0">₹{{ bd.tiffin.due | number }}</td>
+                    </tr>
+                    <tr *ngIf="bd.generalPaid > 0" class="opacity-80">
+                      <td class="font-medium">💼 General / unallocated</td>
+                      <td class="text-right">—</td>
+                      <td class="text-right text-success">₹{{ bd.generalPaid | number }}</td>
+                      <td class="text-right opacity-60">credit</td>
+                    </tr>
+                    <tr *ngIf="!bd.seat.active && !bd.pg.active && !bd.tiffin.active && bd.seat.paid === 0 && bd.pg.paid === 0 && bd.tiffin.paid === 0">
+                      <td colspan="4" class="text-center opacity-60 py-4">No active services.</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="text-[11px] opacity-50 mt-1">Seat &amp; PG dues count payments tagged to that service; tiffin uses its own ledger. General payments reduce the combined total only.</p>
+              </div>
+            </div>
+
             <div class="card bg-base-100 border border-base-300 shadow-sm overflow-hidden">
               <div class="overflow-x-auto">
                 <table class="table table-sm">
@@ -350,6 +403,7 @@ export class StudentProfileComponent implements OnInit, OnDestroy {
   private paymentsApi = inject(PaymentsApiService);
   private http = inject(HttpClient);
   private toast = inject(ToastService);
+  private auth = inject(AuthService);
 
   @ViewChild('webcamVideo') webcamVideo?: ElementRef<HTMLVideoElement>;
 
@@ -452,6 +506,30 @@ export class StudentProfileComponent implements OnInit, OnDestroy {
       () => this.toast.success('Copied'),
       () => this.toast.error('Copy failed'),
     );
+  }
+
+  /** Generate and print a branded ID card (with QR) for this student. */
+  printIdCard() {
+    const s = this.student();
+    if (!s) return;
+    const slug = this.auth.user()?.tenantSlug ?? '';
+    const orgName = slug
+      ? slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : 'LMS Platform';
+    const gender = s.gender ? s.gender.charAt(0) + s.gender.slice(1).toLowerCase() : null;
+    printStudentIdCard(
+      {
+        fullName: s.fullName,
+        code: s.code,
+        phone: s.phone,
+        photoUrl: s.photoUrl,
+        qrCode: s.qrCode,
+        examTarget: s.examTarget,
+        expiresAt: s.expiresAt,
+        gender,
+      },
+      { name: orgName, tagline: 'Library & Study Cabin' },
+    ).catch(() => this.toast.error('Could not generate the ID card'));
   }
 
   // ---- Photo update ----

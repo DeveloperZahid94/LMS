@@ -14,6 +14,14 @@ export enum PaymentStatus {
   REFUNDED = 'REFUNDED',
 }
 
+/** Which service a payment is for — drives per-service (seat/PG/tiffin) dues. */
+export enum PaymentPurpose {
+  SEAT = 'SEAT',
+  PG = 'PG',
+  TIFFIN = 'TIFFIN',
+  GENERAL = 'GENERAL',
+}
+
 export interface Payment {
   id: string;
   tenantId: string;
@@ -37,6 +45,7 @@ export interface CreatePaymentDto {
   method: PaymentMethod;
   enrollmentId?: string;
   notes?: string;
+  purpose?: PaymentPurpose;
 }
 
 export interface RazorpayOrderResponse {

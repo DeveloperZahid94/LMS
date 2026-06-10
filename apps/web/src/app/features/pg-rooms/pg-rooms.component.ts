@@ -8,6 +8,7 @@ import {
 } from './pg-rooms.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { StudentsApiService } from '../students/students.service';
+import { StaffApiService, Staff } from '../../core/services/staff.service';
 import { Student } from '@lms/shared';
 import { ToastService } from '../../core/services/toast.service';
 import { SearchableSelectComponent, ComboItem } from '../../shared/components/searchable-select.component';
@@ -367,6 +368,13 @@ type SortField = 'number' | 'price' | 'occupancy';
               <input class="input input-bordered" type="date" formControlName="nextDueDate" />
             </label>
           </div>
+          <label class="form-control" *ngIf="staff().length">
+            <div class="label py-1"><span class="label-text">Assigned by</span></div>
+            <select class="select select-bordered" formControlName="assignedById">
+              <option value="">— Me (current user) —</option>
+              <option *ngFor="let s of staff()" [value]="s.id">{{ s.fullName }}</option>
+            </select>
+          </label>
           <label class="form-control">
             <div class="label py-1"><span class="label-text">Notes</span></div>
             <input class="input input-bordered" formControlName="notes" placeholder="(optional)" />
@@ -471,6 +479,7 @@ export class PgRoomsComponent implements OnInit {
   private api = inject(PgRoomsApiService);
   private branchesApi = inject(BranchesApiService);
   private studentsApi = inject(StudentsApiService);
+  private staffApi = inject(StaffApiService);
   private toast = inject(ToastService);
   private fb = inject(FormBuilder);
 
@@ -509,7 +518,10 @@ export class PgRoomsComponent implements OnInit {
     monthlyRate: [null as number | null, [Validators.min(0)]],
     nextDueDate: [''],
     notes: [''],
+    assignedById: [''],
   });
+
+  staff = signal<Staff[]>([]);
 
   studentItems = computed<ComboItem[]>(() =>
     this.students().map((s) => ({
@@ -540,6 +552,7 @@ export class PgRoomsComponent implements OnInit {
     });
     this.studentsApi.list({ limit: 500, sortBy: 'fullName', sortOrder: 'asc', status: 'ACTIVE' })
       .subscribe((r) => this.students.set(r.data));
+    this.staffApi.list(true).subscribe({ next: (st) => this.staff.set(st), error: () => {} });
     this.reload();
   }
 
@@ -619,6 +632,7 @@ export class PgRoomsComponent implements OnInit {
       monthlyRate: room.monthlyRate,
       nextDueDate: this.nextMonthIso(),
       notes: '',
+      assignedById: '',
     });
     this.assignTarget.set({ room, bedNumber });
     // Refresh the student list each time so newly-added students appear and
@@ -644,6 +658,7 @@ export class PgRoomsComponent implements OnInit {
       monthlyRate: v.monthlyRate != null ? Number(v.monthlyRate) : undefined,
       nextDueDate: v.nextDueDate || undefined,
       notes: v.notes || undefined,
+      assignedById: v.assignedById || undefined,
     };
     this.api.assign(ctx.room.id, dto).subscribe({
       next: () => {

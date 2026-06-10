@@ -1,11 +1,13 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { FeatureKey } from '@lms/shared';
 import { AuthService } from '../core/services/auth.service';
 import { ThemeService } from '../core/services/theme.service';
+import { IdleService } from '../core/services/idle.service';
 import { ToastContainerComponent } from '../shared/components/toast-container.component';
 import { AlertsApiService } from '../features/alerts/alerts.service';
+import { SettingsApiService } from '../features/settings/settings.service';
 
 interface NavItem {
   label: string;
@@ -21,6 +23,24 @@ interface NavItem {
   imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet, ToastContainerComponent],
   template: `
     <lms-toast-container />
+
+    <!-- Inactivity auto-logout prompt — shown ~1 min before the limit -->
+    <div *ngIf="idle.warningVisible()" class="modal modal-open" role="alertdialog" aria-modal="true">
+      <div class="modal-box max-w-sm text-center">
+        <div class="text-4xl mb-2">⏳</div>
+        <h3 class="font-bold text-lg">Still there?</h3>
+        <p class="py-2 text-sm opacity-80">
+          You've been inactive for a while. For security you'll be signed out in
+          <span class="font-semibold text-error">{{ idle.countdown() }}</span> second{{ idle.countdown() === 1 ? '' : 's' }}.
+        </p>
+        <div class="modal-action justify-center">
+          <button class="btn btn-ghost btn-sm" (click)="idle.logoutNow()">Log out now</button>
+          <button class="btn btn-primary btn-sm" (click)="idle.continueSession()">Stay signed in</button>
+        </div>
+      </div>
+      <div class="modal-backdrop bg-black/40"></div>
+    </div>
+
     <div class="drawer lg:drawer-open min-h-screen bg-base-200">
       <input id="lms-drawer" type="checkbox" class="drawer-toggle" />
 
@@ -275,18 +295,36 @@ interface NavItem {
     }
   `],
 })
-export class ShellComponent implements OnInit {
+export class ShellComponent implements OnInit, OnDestroy {
   auth = inject(AuthService);
   theme = inject(ThemeService);
+  idle = inject(IdleService);
   private router = inject(Router);
   private alertsApi = inject(AlertsApiService);
+  private settingsApi = inject(SettingsApiService);
   collapsed = signal(this.readCollapsed());
   alertCount = signal(0);
+
+  /** Fallback when the tenant setting can't be loaded (mirrors the settings default). */
+  private static readonly DEFAULT_AUTO_LOGOUT_MIN = 30;
 
   ngOnInit() {
     this.refreshAlerts();
     // Refresh the bell count every 60s so it stays roughly fresh while staff browse.
     setInterval(() => this.refreshAlerts(), 60_000);
+
+    // Arm inactivity auto-logout with the tenant's configured limit. Start
+    // immediately on a sensible default so we're never unprotected, then adjust
+    // once the real setting arrives (the timer reads the value dynamically).
+    this.idle.start(ShellComponent.DEFAULT_AUTO_LOGOUT_MIN);
+    this.settingsApi.get().subscribe({
+      next: (s) => this.idle.configure(s.security?.autoLogoutMin ?? ShellComponent.DEFAULT_AUTO_LOGOUT_MIN),
+      error: () => { /* keep the default limit if settings can't be fetched (e.g. super-admin) */ },
+    });
+  }
+
+  ngOnDestroy() {
+    this.idle.stop();
   }
 
   toggleCollapsed() {

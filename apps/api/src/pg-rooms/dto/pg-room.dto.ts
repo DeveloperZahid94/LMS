@@ -90,6 +90,11 @@ export class AssignBedDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /** Staff member who handled this allocation. Defaults to the logged-in user. */
+  @IsOptional()
+  @IsUUID()
+  assignedById?: string;
 }
 
 export class PgRoomsListQueryDto {

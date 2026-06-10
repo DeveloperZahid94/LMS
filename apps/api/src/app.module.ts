@@ -20,6 +20,7 @@ import { ReportsModule } from './reports/reports.module';
 import { PgRoomsModule } from './pg-rooms/pg-rooms.module';
 import { TiffinModule } from './tiffin/tiffin.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { StaffModule } from './staff/staff.module';
 import { BalanceModule } from './balance/balance.module';
 import { SettingsModule } from './settings/settings.module';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -55,6 +56,7 @@ import { AuditInterceptor } from './audit/audit.interceptor';
     PgRoomsModule,
     TiffinModule,
     ExpensesModule,
+    StaffModule,
     BalanceModule,
     SettingsModule,
   ],

@@ -23,6 +23,7 @@ export class DashboardService {
     const [
       totalStudents, activeStudents, totalSeats, occupiedSeats,
       todayCheckIns, monthRevenue, duePaymentsCount, expiringSoon,
+      newStudentsThisMonth, expenseThisMonth, outstandingDuesAgg,
     ] = await Promise.all([
       this.prisma.student.count({ where: { tenantId, ...branchFilter } }),
       this.prisma.student.count({ where: { tenantId, status: 'ACTIVE', ...branchFilter } }),
@@ -41,11 +42,26 @@ export class DashboardService {
           endDate: { lte: new Date(Date.now() + 7 * 24 * 3600 * 1000) },
         },
       }),
+      this.prisma.student.count({ where: { tenantId, createdAt: { gte: monthStart }, ...branchFilter } }),
+      this.prisma.expense.aggregate({
+        where: { tenantId, expenseDate: { gte: monthStart }, ...branchFilter },
+        _sum: { amount: true },
+      }),
+      // Real outstanding dues = sum of students' positive carried balances
+      // (NOT pending payment rows, which are only unconfirmed gateway orders).
+      this.prisma.student.aggregate({
+        where: { tenantId, outstandingBalance: { gt: 0 }, ...branchFilter },
+        _sum: { outstandingBalance: true },
+      }),
     ]);
 
     const attendanceLast7Days = await this.attendanceSeries(tenantId, branchId, sevenDaysAgo);
     const revenueLast6Months = await this.revenueSeries(tenantId, branchId);
     const seatOccupancyByZone = await this.seatsByZone(tenantId, branchId);
+    const recent = await this.recentActivity(tenantId, branchId);
+
+    const monthRevenueNum = Number(monthRevenue._sum.amount ?? 0);
+    const expenseThisMonthNum = Number(expenseThisMonth._sum.amount ?? 0);
 
     return {
       kpis: {
@@ -54,11 +70,51 @@ export class DashboardService {
         totalSeats,
         occupiedSeats,
         todayCheckIns,
-        monthRevenue: Number(monthRevenue._sum.amount ?? 0),
+        monthRevenue: monthRevenueNum,
         duePaymentsCount,
         expiringSoonCount: expiringSoon,
+        newStudentsThisMonth,
+        expenseThisMonth: expenseThisMonthNum,
+        netThisMonth: monthRevenueNum - expenseThisMonthNum,
+        outstandingDuesAmount: Number(outstandingDuesAgg._sum.outstandingBalance ?? 0),
       },
       charts: { attendanceLast7Days, revenueLast6Months, seatOccupancyByZone },
+      recent,
+    };
+  }
+
+  /** Latest students added and latest payments received — the "what just happened" feed. */
+  private async recentActivity(tenantId: string, branchId: string | undefined) {
+    const branchFilter = branchId ? { branchId } : {};
+    const [students, payments] = await Promise.all([
+      this.prisma.student.findMany({
+        where: { tenantId, ...branchFilter },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, fullName: true, code: true, status: true, createdAt: true },
+      }),
+      this.prisma.payment.findMany({
+        where: { tenantId, status: 'PAID', deletedAt: null, ...branchFilter },
+        orderBy: { paidAt: 'desc' },
+        take: 5,
+        select: {
+          id: true, amount: true, method: true, paidAt: true,
+          student: { select: { fullName: true } },
+        },
+      }),
+    ]);
+    return {
+      students: students.map((s) => ({
+        id: s.id, fullName: s.fullName, code: s.code, status: s.status,
+        createdAt: s.createdAt.toISOString(),
+      })),
+      payments: payments.map((p) => ({
+        id: p.id,
+        amount: Number(p.amount ?? 0),
+        method: p.method as string,
+        studentName: p.student?.fullName ?? '—',
+        paidAt: p.paidAt ? p.paidAt.toISOString() : null,
+      })),
     };
   }
 

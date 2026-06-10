@@ -29,6 +29,8 @@ export interface CreatePaymentDto {
   notes?: string;
   nextDueDate?: string;
   applyToAccount?: boolean;
+  /** Which service this payment is for — drives per-service dues. */
+  purpose?: 'SEAT' | 'PG' | 'TIFFIN' | 'GENERAL';
 }
 
 export interface PaymentHistoryItem {
@@ -50,12 +52,28 @@ export interface PaymentAllocation {
   nextDueDate: string | null;
 }
 
+export interface ServiceDue {
+  expected: number;
+  paid: number;
+  due: number;
+  active: boolean;
+}
+
+export interface DuesBreakdown {
+  seat: ServiceDue;
+  pg: ServiceDue;
+  tiffin: ServiceDue;
+  generalPaid: number;
+  totalDue: number;
+}
+
 export interface PaymentSummary {
   student: { id: string; code: string; fullName: string; phone: string };
   payments: PaymentHistoryItem[];
   totalPaid: number;
   monthlyTotal: number;
   allocations: PaymentAllocation[];
+  breakdown: DuesBreakdown;
 }
 
 @Injectable({ providedIn: 'root' })

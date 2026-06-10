@@ -62,102 +62,140 @@ interface StepDef {
 
       <form [formGroup]="form" (ngSubmit)="submit()" class="card bg-base-100 border border-base-300 shadow-sm">
         <div class="card-body">
-          <div class="mb-4 grid grid-cols-3 items-center gap-2 border-b border-base-200 pb-2">
-            <div class="text-xs uppercase tracking-wider opacity-50">
-              <span *ngIf="showFullFlow()">Step {{ currentStep() + 1 }} of {{ steps().length }}</span>
+          <div class="flex items-center gap-3 mb-5 pb-3 border-b border-base-200">
+            <span class="w-11 h-11 rounded-xl grid place-items-center text-xl shrink-0 bg-primary bg-opacity-10 text-primary">
+              {{ steps()[currentStep()].icon }}
+            </span>
+            <div class="flex-1 min-w-0">
+              <h2 class="text-lg font-semibold leading-tight">{{ steps()[currentStep()].label }}</h2>
+              <p class="text-xs opacity-60 truncate">{{ steps()[currentStep()].hint }}</p>
             </div>
-            <h2 class="text-xl font-semibold text-center">{{ steps()[currentStep()].label }}</h2>
-            <p class="text-sm opacity-60 text-right truncate">{{ steps()[currentStep()].hint }}</p>
+            <span *ngIf="showFullFlow()" class="text-xs uppercase tracking-wider opacity-50 whitespace-nowrap">
+              Step {{ currentStep() + 1 }} / {{ steps().length }}
+            </span>
           </div>
 
           <!-- ============================== STEP 1: PERSONAL INFO ============================== -->
           <ng-container *ngIf="currentStep() === 0">
-            <div formGroupName="personal" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-2">
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Full name *</span></div>
-                <input class="input input-bordered input-sm" formControlName="fullName" placeholder="ex. Zahid Anjum" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Phone *</span></div>
-                <input class="input input-bordered input-sm" formControlName="phone" placeholder="ex. 9876543210" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Email</span></div>
-                <input class="input input-bordered input-sm" type="email" formControlName="email" placeholder="ex. zahid@email.com" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Date of birth</span></div>
-                <input class="input input-bordered input-sm" type="date" formControlName="dateOfBirth" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Gender</span></div>
-                <select class="select select-bordered select-sm" formControlName="gender">
-                  <option [ngValue]="null">—</option>
-                  <option *ngFor="let g of genders" [value]="g">{{ g }}</option>
-                </select>
-              </label>
-              <label class="form-control" *ngIf="id()">
-                <div class="label py-1"><span class="label-text">Status</span></div>
-                <select class="select select-bordered select-sm" formControlName="status">
-                  <option *ngFor="let s of statuses" [value]="s">{{ s }}</option>
-                </select>
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Branch *</span></div>
-                <select class="select select-bordered select-sm" formControlName="branchId">
-                  <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
-                </select>
-              </label>
-              <label class="form-control">
-                <div class="label py-1 justify-between">
-                  <span class="label-text">Studying for which exam</span>
-                  <button type="button" class="btn btn-ghost btn-xs" (click)="openAddExam()">+ Add new</button>
-                </div>
-                <select class="select select-bordered select-sm" formControlName="examTarget">
-                  <option [ngValue]="null">—</option>
-                  <option *ngFor="let e of examTargets()" [value]="e.name">
-                    {{ e.name }}{{ e.isCustom ? ' (custom)' : '' }}
-                  </option>
-                </select>
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Membership expires on</span></div>
-                <input class="input input-bordered input-sm" type="date" formControlName="expiresAt" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Aadhaar number</span></div>
-                <input class="input input-bordered input-sm" formControlName="aadhaarNumber" placeholder="ex. 1234 5678 9012" maxlength="12" inputmode="numeric" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Voter ID (EPIC)</span></div>
-                <input class="input input-bordered input-sm" formControlName="voterId" placeholder="ex. ABC1234567" maxlength="20" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Father's name</span></div>
-                <input class="input input-bordered input-sm" formControlName="fatherName" placeholder="ex. Imran Anjum" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Mother's name</span></div>
-                <input class="input input-bordered input-sm" formControlName="motherName" placeholder="ex. Sara Anjum" />
-              </label>
-              <label class="form-control">
-                <div class="label py-1"><span class="label-text">Emergency contact</span></div>
-                <input class="input input-bordered input-sm" formControlName="emergencyContact" placeholder="ex. 9876543210" />
-              </label>
+            <div formGroupName="personal" class="space-y-7">
 
-              <!-- Address (full width) -->
-              <label class="form-control sm:col-span-2 lg:col-span-3">
-                <div class="label py-1"><span class="label-text">Permanent address</span></div>
-                <textarea class="textarea textarea-bordered textarea-sm" formControlName="permanentAddress" rows="2" placeholder="ex. House 12, MG Road, Pune, MH 411001"></textarea>
-              </label>
-              <div class="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
-                <input id="sameAddr" type="checkbox" class="checkbox checkbox-primary checkbox-sm" [checked]="sameAddress()" (change)="toggleSameAddress($event)" />
-                <label for="sameAddr" class="text-sm">Temporary address is the same as permanent</label>
-              </div>
-              <label class="form-control sm:col-span-2 lg:col-span-3" *ngIf="!sameAddress()">
-                <div class="label py-1"><span class="label-text">Temporary address</span></div>
-                <textarea class="textarea textarea-bordered textarea-sm" formControlName="temporaryAddress" rows="2" placeholder="ex. Flat 4B, Sector 22, Noida, UP 201301"></textarea>
-              </label>
+              <!-- ---- Basic details ---- -->
+              <section>
+                <div class="lms-section-head"><span class="lms-section-chip">👤</span> Basic details</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Full name *</span></div>
+                    <input class="input input-bordered" formControlName="fullName" placeholder="ex. Zahid Anjum" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Phone *</span></div>
+                    <input class="input input-bordered" formControlName="phone" placeholder="ex. 9876543210" inputmode="tel" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Email</span></div>
+                    <input class="input input-bordered" type="email" formControlName="email" placeholder="ex. zahid@email.com" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Date of birth</span></div>
+                    <input class="input input-bordered" type="date" formControlName="dateOfBirth" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Gender</span></div>
+                    <select class="select select-bordered" formControlName="gender">
+                      <option [ngValue]="null">—</option>
+                      <option *ngFor="let g of genders" [value]="g">{{ g }}</option>
+                    </select>
+                  </label>
+                  <label class="form-control" *ngIf="id()">
+                    <div class="label py-1"><span class="label-text font-medium">Status</span></div>
+                    <select class="select select-bordered" formControlName="status">
+                      <option *ngFor="let s of statuses" [value]="s">{{ s }}</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <!-- ---- Academic & membership ---- -->
+              <section>
+                <div class="lms-section-head"><span class="lms-section-chip">🎓</span> Academic &amp; membership</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Branch *</span></div>
+                    <select class="select select-bordered" formControlName="branchId">
+                      <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+                    </select>
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1 justify-between">
+                      <span class="label-text font-medium">Studying for which exam</span>
+                      <button type="button" class="btn btn-ghost btn-xs text-primary" (click)="openAddExam()">+ Add new</button>
+                    </div>
+                    <select class="select select-bordered" formControlName="examTarget">
+                      <option [ngValue]="null">—</option>
+                      <option *ngFor="let e of examTargets()" [value]="e.name">
+                        {{ e.name }}{{ e.isCustom ? ' (custom)' : '' }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Membership expires on</span></div>
+                    <input class="input input-bordered" type="date" formControlName="expiresAt" />
+                  </label>
+                </div>
+              </section>
+
+              <!-- ---- Identity documents ---- -->
+              <section>
+                <div class="lms-section-head"><span class="lms-section-chip">🪪</span> Identity documents</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Aadhaar number</span></div>
+                    <input class="input input-bordered" formControlName="aadhaarNumber" placeholder="ex. 1234 5678 9012" maxlength="12" inputmode="numeric" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Voter ID (EPIC)</span></div>
+                    <input class="input input-bordered" formControlName="voterId" placeholder="ex. ABC1234567" maxlength="20" />
+                  </label>
+                </div>
+              </section>
+
+              <!-- ---- Family & emergency ---- -->
+              <section>
+                <div class="lms-section-head"><span class="lms-section-chip">👪</span> Family &amp; emergency</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Father's name</span></div>
+                    <input class="input input-bordered" formControlName="fatherName" placeholder="ex. Imran Anjum" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Mother's name</span></div>
+                    <input class="input input-bordered" formControlName="motherName" placeholder="ex. Sara Anjum" />
+                  </label>
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Emergency contact</span></div>
+                    <input class="input input-bordered" formControlName="emergencyContact" placeholder="ex. 9876543210" inputmode="tel" />
+                  </label>
+                </div>
+              </section>
+
+              <!-- ---- Address ---- -->
+              <section>
+                <div class="lms-section-head"><span class="lms-section-chip">📍</span> Address</div>
+                <div class="grid grid-cols-1 gap-y-3">
+                  <label class="form-control">
+                    <div class="label py-1"><span class="label-text font-medium">Permanent address</span></div>
+                    <textarea class="textarea textarea-bordered" formControlName="permanentAddress" rows="2" placeholder="ex. House 12, MG Road, Pune, MH 411001"></textarea>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" class="checkbox checkbox-primary checkbox-sm" [checked]="sameAddress()" (change)="toggleSameAddress($event)" />
+                    <span class="text-sm">Temporary address is the same as permanent</span>
+                  </label>
+                  <label class="form-control" *ngIf="!sameAddress()">
+                    <div class="label py-1"><span class="label-text font-medium">Temporary address</span></div>
+                    <textarea class="textarea textarea-bordered" formControlName="temporaryAddress" rows="2" placeholder="ex. Flat 4B, Sector 22, Noida, UP 201301"></textarea>
+                  </label>
+                </div>
+              </section>
             </div>
           </ng-container>
 
@@ -812,16 +850,34 @@ interface StepDef {
     </dialog>
   `,
   styles: [`
+    /* ---- Section sub-headers inside the Personal Info step ---- */
+    .lms-section-head {
+      display: flex; align-items: center; gap: .55rem;
+      font-size: .78rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em;
+      opacity: .85;
+      margin-bottom: .85rem;
+      padding-bottom: .45rem;
+      border-bottom: 1px solid hsl(var(--b2));
+    }
+    .lms-section-chip {
+      width: 1.7rem; height: 1.7rem; border-radius: .55rem;
+      display: grid; place-items: center;
+      font-size: .9rem; flex-shrink: 0;
+      background: hsl(var(--p) / .12);
+    }
+
+    /* ---- Stepper ---- */
     .lms-stepper {
       position: relative;
       display: flex;
       justify-content: space-between;
-      padding: .7rem 1.5rem .55rem;
+      padding: 1rem 1.75rem .85rem;
       gap: .5rem;
     }
     .lms-stepper-track {
       position: absolute;
-      left: 3rem; right: 3rem; top: 1.575rem;
+      left: 3.25rem; right: 3.25rem; top: 2rem;
       height: 3px;
       background: hsl(var(--b3));
       border-radius: 999px;
@@ -829,13 +885,13 @@ interface StepDef {
     }
     .lms-stepper-progress {
       position: absolute;
-      left: 3rem; top: 1.575rem;
+      left: 3.25rem; top: 2rem;
       height: 3px;
       background: linear-gradient(90deg, hsl(var(--p)), hsl(var(--s)));
       border-radius: 999px;
       z-index: 1;
-      transition: width .3s ease;
-      max-width: calc(100% - 6rem);
+      transition: width .35s cubic-bezier(.16, 1, .3, 1);
+      max-width: calc(100% - 6.5rem);
     }
     .lms-step {
       position: relative;
@@ -845,25 +901,28 @@ interface StepDef {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: .25rem;
+      gap: .45rem;
       flex: 1;
       cursor: pointer;
     }
-    .lms-step:disabled { cursor: not-allowed; opacity: .6; }
+    .lms-step:not(:disabled):hover .lms-step-circle { transform: translateY(-2px); }
+    .lms-step:disabled { cursor: not-allowed; opacity: .55; }
     .lms-step-circle {
-      width: 1.75rem; height: 1.75rem;
+      width: 2.25rem; height: 2.25rem;
       border-radius: 9999px;
       display: grid; place-items: center;
-      font-size: .8rem;
+      font-size: 1rem;
       background: hsl(var(--b1));
       border: 2px solid hsl(var(--b3));
-      transition: background .25s ease, border-color .25s ease, transform .15s ease;
+      color: hsl(var(--bc) / .6);
+      transition: background .25s ease, border-color .25s ease, transform .2s ease, box-shadow .25s ease;
     }
     .lms-step.is-active .lms-step-circle {
-      background: hsl(var(--p));
+      background: linear-gradient(135deg, hsl(var(--p)), hsl(var(--s)));
       border-color: hsl(var(--p));
       color: hsl(var(--pc));
-      transform: scale(1.08);
+      transform: scale(1.1);
+      box-shadow: 0 0 0 4px hsl(var(--p) / .18);
     }
     .lms-step.is-done .lms-step-circle {
       background: hsl(var(--su));
@@ -871,19 +930,26 @@ interface StepDef {
       color: hsl(var(--suc));
     }
     .lms-check { font-weight: 700; }
-    .lms-step-icon { font-size: .8rem; }
+    .lms-step-icon { font-size: 1rem; line-height: 1; }
     .lms-step-label {
-      font-size: .65rem;
+      font-size: .7rem;
       text-transform: uppercase;
-      letter-spacing: .08em;
-      opacity: .7;
+      letter-spacing: .06em;
+      opacity: .6;
       font-weight: 600;
+      text-align: center;
     }
-    .lms-step.is-active .lms-step-label,
+    .lms-step.is-active .lms-step-label { opacity: 1; color: hsl(var(--p)); }
     .lms-step.is-done .lms-step-label { opacity: 1; }
     @media (max-width: 640px) {
-      .lms-stepper-track, .lms-stepper-progress { left: 2rem; right: 2rem; }
-      .lms-stepper-progress { max-width: calc(100% - 4rem); }
+      .lms-stepper { padding: 1rem .75rem .85rem; }
+      .lms-stepper-track, .lms-stepper-progress { left: 2.25rem; right: 2.25rem; }
+      .lms-stepper-progress { max-width: calc(100% - 4.5rem); }
+      .lms-step-label { font-size: .6rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lms-step-circle, .lms-stepper-progress { transition: none; }
+      .lms-step:not(:disabled):hover .lms-step-circle { transform: none; }
     }
   `],
 })
@@ -1613,6 +1679,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
             branchId: student.branchId,
             amount: Number(pay.cabinInitial),
             method: payMethodMap[this.payMethod()],
+            purpose: 'SEAT',
             notes: note ? `[Cabin] ${note}` : '[Cabin initial payment]',
             nextDueDate: this.cabinGroup.value.dueDate || undefined,
           }).toPromise()
@@ -1627,6 +1694,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
             branchId: student.branchId,
             amount: Number(pay.pgInitial),
             method: payMethodMap[this.payMethod()],
+            purpose: 'PG',
             notes: note ? `[PG] ${note}` : '[PG initial payment]',
             nextDueDate: this.pgGroup.value.dueDate || undefined,
           }).toPromise()
@@ -1641,6 +1709,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
             branchId: student.branchId,
             amount: Number(pay.tiffinInitial),
             method: payMethodMap[this.payMethod()],
+            purpose: 'TIFFIN',
             notes: note ? `[Tiffin] ${note}` : '[Tiffin initial payment]',
             nextDueDate: this.tiffinGroup.value.dueDate || undefined,
           }).toPromise()

@@ -56,6 +56,7 @@ export class SeatAssignmentsService {
         include: {
           seat:    { select: { id: true, code: true, type: true, branchId: true, zone: true, floor: true } },
           student: { select: { id: true, code: true, fullName: true, phone: true } },
+          assignedBy: { select: { id: true, fullName: true, role: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -70,18 +71,22 @@ export class SeatAssignmentsService {
     if (studentIds.length) {
       const aggs = await this.prisma.payment.groupBy({
         by: ['studentId'],
-        where: { tenantId, studentId: { in: studentIds }, status: 'PAID', deletedAt: null },
-        _sum: { amount: true },
+        // Seat dues count only seat-purpose payments (not PG/Tiffin/General).
+        // Discount counts as settled too (a concession reduces what's owed).
+        where: { tenantId, studentId: { in: studentIds }, status: 'PAID', deletedAt: null, purpose: 'SEAT' as any },
+        _sum: { amount: true, discount: true },
       });
       for (const a of aggs) {
-        paidByStudent.set(a.studentId, Number(a._sum.amount ?? 0));
+        paidByStudent.set(a.studentId, Number(a._sum.amount ?? 0) + Number(a._sum.discount ?? 0));
       }
     }
     const hydrated = data.map((r) => {
       const paid = paidByStudent.get(r.studentId) ?? 0;
       const rate = r.monthlyRate ? Number(r.monthlyRate) : null;
       const pct = rate && rate > 0 ? Math.min(100, Math.round((paid / rate) * 100)) : null;
-      return { ...r, paidAmount: paid, paidPct: pct };
+      // Outstanding cabin amount = monthly rate minus what's been paid (never below 0).
+      const dueAmount = rate != null ? Math.max(0, rate - paid) : null;
+      return { ...r, paidAmount: paid, paidPct: pct, dueAmount };
     });
 
     return { data: hydrated, total, page, limit };
@@ -96,6 +101,9 @@ export class SeatAssignmentsService {
     ]);
     if (!seat) throw new BadRequestException('Seat not found in this tenant');
     if (!student) throw new BadRequestException('Student not found in this tenant');
+
+    // Who handled this allocation — the explicit picked staff, else the caller.
+    const assignedById = await this.resolveAssignedBy(tenantId, dto.assignedById);
     if (!seat.isActive) throw new BadRequestException('Seat is inactive');
     if (student.status !== 'ACTIVE') throw new BadRequestException('Student is not active');
 
@@ -145,10 +153,12 @@ export class SeatAssignmentsService {
         status,
         monthlyRate: snapshotRate as any,
         nextDueDate: dto.nextDueDate ? new Date(dto.nextDueDate) : null,
+        assignedById,
       },
       include: {
         seat:    { select: { id: true, code: true, type: true, branchId: true } },
         student: { select: { id: true, code: true, fullName: true, phone: true } },
+        assignedBy: { select: { id: true, fullName: true, role: true } },
       },
     });
 
@@ -163,6 +173,18 @@ export class SeatAssignmentsService {
     // Adding a billable allocation raises the student's expected dues.
     await this.balance.recompute(tenantId, dto.studentId);
     return created;
+  }
+
+  /**
+   * Resolves the staff member to attribute an allocation to. Uses the explicitly
+   * picked staff if valid for this tenant, otherwise falls back to the logged-in
+   * user. Returns null if neither resolves (e.g. SuperAdmin context).
+   */
+  private async resolveAssignedBy(tenantId: string, pickedId?: string): Promise<string | null> {
+    const candidate = pickedId || this.tenantCtx.userId;
+    if (!candidate) return null;
+    const staff = await this.prisma.user.findFirst({ where: { id: candidate, tenantId }, select: { id: true } });
+    return staff?.id ?? null;
   }
 
   async end(id: string) {
@@ -210,10 +232,10 @@ export class SeatAssignmentsService {
     });
     if (!assigns.length) return;
     const paidAgg = await this.prisma.payment.aggregate({
-      where: { tenantId, studentId, status: 'PAID', deletedAt: null },
-      _sum: { amount: true },
+      where: { tenantId, studentId, status: 'PAID', deletedAt: null, purpose: 'SEAT' as any },
+      _sum: { amount: true, discount: true },
     });
-    const paid = Number(paidAgg._sum.amount ?? 0);
+    const paid = Number(paidAgg._sum.amount ?? 0) + Number(paidAgg._sum.discount ?? 0);
     for (const a of assigns) {
       const rate = a.monthlyRate ? Number(a.monthlyRate) : 0;
       const desired = rate > 0 && paid >= rate * CONFIRMATION_THRESHOLD
@@ -238,10 +260,10 @@ export class SeatAssignmentsService {
   ): Promise<SeatAssignmentStatus> {
     if (!monthlyRate) return SeatAssignmentStatus.TEMPORARY;
     const paid = await this.prisma.payment.aggregate({
-      where: { tenantId, studentId, status: 'PAID', deletedAt: null },
-      _sum: { amount: true },
+      where: { tenantId, studentId, status: 'PAID', deletedAt: null, purpose: 'SEAT' as any },
+      _sum: { amount: true, discount: true },
     });
-    const total = Number(paid._sum.amount ?? 0);
+    const total = Number(paid._sum.amount ?? 0) + Number(paid._sum.discount ?? 0);
     return total >= monthlyRate * CONFIRMATION_THRESHOLD
       ? SeatAssignmentStatus.CONFIRMED
       : SeatAssignmentStatus.TEMPORARY;

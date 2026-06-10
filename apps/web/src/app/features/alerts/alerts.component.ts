@@ -3,9 +3,10 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { debounceTime, Subject } from 'rxjs';
 import { RouterLink } from '@angular/router';
-import { AlertsApiService, AlertsResponse, BalanceAlert, DueSoonAlert, ExpiringAlert, OverdueAlert } from './alerts.service';
+import { AlertsApiService, AlertsResponse, BalanceAlert, DueSoonAlert, ExpiringAlert, OverdueAlert, NotifyChannel, NotifyRecipient } from './alerts.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
 import { ExportToolbarComponent } from '../../shared/components/export-toolbar.component';
 import { ExportColumn, exportCsv, exportPdf, fmtDate } from '../../shared/utils/export.util';
 
@@ -148,9 +149,9 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                 <td class="text-sm">{{ a.nextDueDate | date:'mediumDate' }}</td>
                 <td><span class="badge badge-error">{{ a.daysPast }}d</span></td>
                 <td class="text-right">
-                  <div class="join">
-                    <a class="btn btn-primary btn-xs join-item" routerLink="/payments">Record payment</a>
-                    <div class="dropdown dropdown-end join-item">
+                  <div class="flex items-center justify-end gap-2">
+                    <a class="btn btn-primary btn-xs" routerLink="/payments">Record payment</a>
+                    <div class="dropdown dropdown-end">
                       <div tabindex="0" role="button" class="btn btn-xs btn-outline">
                         Send
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -158,9 +159,9 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                         </svg>
                       </div>
                       <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 mt-1 w-44 p-2 border border-base-300">
-                        <li><a (click)="sendAlert('email')"><span>✉</span> Email</a></li>
-                        <li><a (click)="sendAlert('sms')"><span>💬</span> SMS</a></li>
-                        <li><a (click)="sendAlert('whatsapp')"><span>🟢</span> WhatsApp</a></li>
+                        <li><a (click)="sendAlert('email', a)"><span>✉</span> Email</a></li>
+                        <li><a (click)="sendAlert('sms', a)"><span>💬</span> SMS</a></li>
+                        <li><a (click)="sendAlert('whatsapp', a)"><span>🟢</span> WhatsApp</a></li>
                       </ul>
                     </div>
                   </div>
@@ -195,9 +196,9 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                 <td class="text-sm">{{ a.nextDueDate | date:'mediumDate' }}</td>
                 <td><span class="badge badge-warning">{{ a.daysUntil }}d</span></td>
                 <td class="text-right">
-                  <div class="join">
-                    <a class="btn btn-ghost btn-xs join-item" routerLink="/payments">Record payment</a>
-                    <div class="dropdown dropdown-end join-item">
+                  <div class="flex items-center justify-end gap-2">
+                    <a class="btn btn-ghost btn-xs" routerLink="/payments">Record payment</a>
+                    <div class="dropdown dropdown-end">
                       <div tabindex="0" role="button" class="btn btn-xs btn-outline">
                         Send
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -205,9 +206,9 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                         </svg>
                       </div>
                       <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 mt-1 w-44 p-2 border border-base-300">
-                        <li><a (click)="sendAlert('email')"><span>✉</span> Email</a></li>
-                        <li><a (click)="sendAlert('sms')"><span>💬</span> SMS</a></li>
-                        <li><a (click)="sendAlert('whatsapp')"><span>🟢</span> WhatsApp</a></li>
+                        <li><a (click)="sendAlert('email', a)"><span>✉</span> Email</a></li>
+                        <li><a (click)="sendAlert('sms', a)"><span>💬</span> SMS</a></li>
+                        <li><a (click)="sendAlert('whatsapp', a)"><span>🟢</span> WhatsApp</a></li>
                       </ul>
                     </div>
                   </div>
@@ -240,9 +241,9 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                 <td class="text-sm">{{ a.expiresAt | date:'mediumDate' }}</td>
                 <td><span class="badge badge-info">{{ a.daysUntil }}d</span></td>
                 <td class="text-right">
-                  <div class="join">
-                    <a class="btn btn-ghost btn-xs join-item" [routerLink]="['/students', a.student.id]">Open student</a>
-                    <div class="dropdown dropdown-end join-item">
+                  <div class="flex items-center justify-end gap-2">
+                    <a class="btn btn-ghost btn-xs" [routerLink]="['/students', a.student.id]">Open student</a>
+                    <div class="dropdown dropdown-end">
                       <div tabindex="0" role="button" class="btn btn-xs btn-outline">
                         Send
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -250,9 +251,9 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                         </svg>
                       </div>
                       <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 mt-1 w-44 p-2 border border-base-300">
-                        <li><a (click)="sendAlert('email')"><span>✉</span> Email</a></li>
-                        <li><a (click)="sendAlert('sms')"><span>💬</span> SMS</a></li>
-                        <li><a (click)="sendAlert('whatsapp')"><span>🟢</span> WhatsApp</a></li>
+                        <li><a (click)="sendAlert('email', a)"><span>✉</span> Email</a></li>
+                        <li><a (click)="sendAlert('sms', a)"><span>💬</span> SMS</a></li>
+                        <li><a (click)="sendAlert('whatsapp', a)"><span>🟢</span> WhatsApp</a></li>
                       </ul>
                     </div>
                   </div>
@@ -284,7 +285,22 @@ type TabKey = 'overdue' | 'dueSoon' | 'expiring' | 'balance';
                 <td class="text-sm">{{ a.student.phone }}</td>
                 <td><span class="badge badge-error">₹{{ a.amount | number }}</span></td>
                 <td class="text-right">
-                  <a class="btn btn-primary btn-xs" [routerLink]="['/students', a.student.id, 'profile']">Collect balance</a>
+                  <div class="flex items-center justify-end gap-2">
+                    <a class="btn btn-primary btn-xs" [routerLink]="['/students', a.student.id, 'profile']">Collect balance</a>
+                    <div class="dropdown dropdown-end">
+                      <div tabindex="0" role="button" class="btn btn-xs btn-outline">
+                        Send
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                      <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow z-30 mt-1 w-44 p-2 border border-base-300">
+                        <li><a (click)="sendAlert('email', a)"><span>✉</span> Email</a></li>
+                        <li><a (click)="sendAlert('sms', a)"><span>💬</span> SMS</a></li>
+                        <li><a (click)="sendAlert('whatsapp', a)"><span>🟢</span> WhatsApp</a></li>
+                      </ul>
+                    </div>
+                  </div>
                 </td>
               </tr>
               <tr *ngIf="(data()?.balanceDue?.length ?? 0) === 0">
@@ -304,7 +320,9 @@ export class AlertsComponent implements OnInit {
   private api = inject(AlertsApiService);
   private branchesApi = inject(BranchesApiService);
   private toast = inject(ToastService);
+  private auth = inject(AuthService);
 
+  sending = signal(false);
   data = signal<AlertsResponse | null>(null);
   branches = signal<Branch[]>([]);
   branchFilter: string | undefined = undefined;
@@ -409,16 +427,92 @@ export class AlertsComponent implements OnInit {
     }
   }
 
-  sendAlert(channel: 'email' | 'sms' | 'whatsapp') {
+  /** Send a reminder to one student over the chosen channel. */
+  sendAlert(channel: 'email' | 'sms' | 'whatsapp', a: any) {
     (document.activeElement as HTMLElement | null)?.blur();
-    const label = channel === 'email' ? 'Email' : channel === 'sms' ? 'SMS' : 'WhatsApp';
-    this.toast.warning(`${label} alerts are disabled. Please contact Support to enable this integration.`);
+    this.dispatch(channel, [{ studentId: a.student.id, message: this.messageFor(a), subject: this.subjectFor(a) }]);
   }
 
+  /** Send a reminder to everyone in the active tab. */
   sendAlertBulk(channel: 'email' | 'sms' | 'whatsapp') {
     (document.activeElement as HTMLElement | null)?.blur();
-    const label = channel === 'email' ? 'Email' : channel === 'sms' ? 'SMS' : 'WhatsApp';
-    this.toast.warning(`Bulk ${label} alerts are disabled. Please contact Support to enable this integration.`);
+    const rows = this.activeRows();
+    if (!rows.length) { this.toast.info('Nothing to send in this list.'); return; }
+    const label = this.channelLabel(channel);
+    if (!confirm(`Send ${label} to all ${rows.length} student(s) in "${this.tabLabel()}"?`)) return;
+    const recipients: NotifyRecipient[] = rows.map((a) => ({
+      studentId: a.student.id, message: this.messageFor(a), subject: this.subjectFor(a),
+    }));
+    this.dispatch(channel, recipients);
+  }
+
+  private dispatch(channel: 'email' | 'sms' | 'whatsapp', recipients: NotifyRecipient[]) {
+    if (this.sending()) return;
+    const apiChannel = channel.toUpperCase() as NotifyChannel;
+    const label = this.channelLabel(channel);
+    this.sending.set(true);
+    this.api.notify(apiChannel, recipients).subscribe({
+      next: (r) => {
+        this.sending.set(false);
+        if (r.sent && !r.failed) this.toast.success(`${label} sent to ${r.sent} student${r.sent === 1 ? '' : 's'}.`);
+        else if (r.sent && r.failed) this.toast.warning(`${label}: sent ${r.sent}, failed ${r.failed}.${r.errors[0] ? ' ' + r.errors[0] : ''}`);
+        else this.toast.error(`${label} failed.${r.errors[0] ? ' ' + r.errors[0] : ' Check the channel is configured.'}`);
+      },
+      error: (e) => {
+        this.sending.set(false);
+        this.toast.error(e.error?.message ?? `Could not send ${label}`);
+      },
+    });
+  }
+
+  private channelLabel(c: 'email' | 'sms' | 'whatsapp'): string {
+    return c === 'email' ? 'Email' : c === 'sms' ? 'SMS' : 'WhatsApp';
+  }
+
+  private activeRows(): any[] {
+    const d = this.data();
+    if (!d) return [];
+    return this.tab() === 'overdue' ? d.overdue
+      : this.tab() === 'dueSoon' ? d.dueSoon
+      : this.tab() === 'balance' ? d.balanceDue
+      : d.expiringSoon;
+  }
+
+  private orgName(): string {
+    const slug = this.auth.user()?.tenantSlug ?? '';
+    return slug ? slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'our library';
+  }
+
+  /** Build a student-facing reminder message from the alert. */
+  private messageFor(a: any): string {
+    const name = a.student?.fullName ?? 'Student';
+    const org = this.orgName();
+    const due = a.nextDueDate ? new Date(a.nextDueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    const rate = a.monthlyRate ? `₹${Number(a.monthlyRate).toLocaleString('en-IN')} ` : '';
+    switch (a.kind) {
+      case 'OVERDUE':
+        return `Dear ${name}, your ${rate}payment for seat ${a.seat?.code} is overdue by ${a.daysPast} day${a.daysPast === 1 ? '' : 's'}. Please clear your dues at the earliest. — ${org}`;
+      case 'DUE_SOON':
+        return `Dear ${name}, your ${rate}payment for seat ${a.seat?.code} is due in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}${due ? ` (by ${due})` : ''}. Kindly pay on time. — ${org}`;
+      case 'EXPIRING': {
+        const exp = a.expiresAt ? new Date(a.expiresAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+        return `Dear ${name}, your membership expires in ${a.daysUntil} day${a.daysUntil === 1 ? '' : 's'}${exp ? ` (on ${exp})` : ''}. Please renew to continue. — ${org}`;
+      }
+      case 'BALANCE':
+        return `Dear ${name}, you have an outstanding balance of ₹${Number(a.amount).toLocaleString('en-IN')}. Kindly clear your dues. — ${org}`;
+      default:
+        return `Dear ${name}, this is a reminder from ${org}.`;
+    }
+  }
+
+  private subjectFor(a: any): string {
+    switch (a.kind) {
+      case 'OVERDUE':  return 'Payment overdue';
+      case 'DUE_SOON': return 'Payment reminder';
+      case 'EXPIRING': return 'Membership expiring soon';
+      case 'BALANCE':  return 'Outstanding balance';
+      default:         return 'Reminder';
+    }
   }
 
   private exportRows<T>(rows: T[], cols: ExportColumn<T>[], kind: 'csv' | 'pdf', title: string, range: string) {

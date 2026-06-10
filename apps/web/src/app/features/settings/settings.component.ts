@@ -1,5 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import {
@@ -8,12 +9,15 @@ import {
 } from './settings.service';
 import { StudentsApiService } from '../students/students.service';
 import { PaymentsApiService } from '../payments/payments.service';
+import { BranchesApiService, Branch } from '../students/branches.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportColumn, exportCsv } from '../../shared/utils/export.util';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
+import { IdleService } from '../../core/services/idle.service';
+import { StaffApiService, Staff, CreateStaffDto, UpdateStaffDto } from '../../core/services/staff.service';
 
-type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'appearance' | 'about';
+type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'staff' | 'appearance' | 'about';
 
 @Component({
   selector: 'lms-settings',
@@ -27,7 +31,7 @@ type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'securi
 
     <!-- =========================== TABS =========================== -->
     <div role="tablist" class="tabs tabs-boxed bg-base-200 mb-4 flex flex-wrap gap-1 p-1">
-      <a *ngFor="let s of sections" role="tab" class="tab gap-1.5"
+      <a *ngFor="let s of visibleSections()" role="tab" class="tab gap-1.5"
          [class.tab-active]="section() === s.key"
          (click)="section.set(s.key)">
         <span>{{ s.icon }}</span><span class="hidden sm:inline">{{ s.label }}</span>
@@ -552,6 +556,111 @@ type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'securi
         </div>
       </div>
     </ng-container>
+
+    <!-- =========================== STAFF =========================== -->
+    <ng-container *ngIf="section() === 'staff'">
+      <div class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body p-5">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div>
+              <div class="font-bold text-lg">Staff</div>
+              <p class="text-sm opacity-60">Add team members and pick them when allocating seats/rooms or logging expenses.</p>
+            </div>
+            <button class="btn btn-primary btn-sm" (click)="openStaffCreate()">+ Add staff</button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-xs uppercase tracking-wider">
+                  <th>Name</th><th>Email</th><th>Role</th><th>Branch</th><th>Status</th><th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let s of staffList()" class="hover">
+                  <td class="font-medium">{{ s.fullName }}</td>
+                  <td class="text-sm opacity-80">{{ s.email }}</td>
+                  <td><span class="badge badge-ghost badge-sm">{{ s.role }}</span></td>
+                  <td class="text-sm">{{ s.branch?.name || '—' }}</td>
+                  <td>
+                    <span class="badge badge-sm" [class.badge-success]="s.isActive" [class.badge-ghost]="!s.isActive">
+                      {{ s.isActive ? 'Active' : 'Inactive' }}
+                    </span>
+                  </td>
+                  <td class="text-right">
+                    <div class="flex items-center justify-end gap-1" *ngIf="s.role !== 'CLIENT_ADMIN'">
+                      <button class="btn btn-ghost btn-xs" (click)="openStaffEdit(s)" title="Edit">✎</button>
+                      <button class="btn btn-ghost btn-xs" (click)="toggleStaffActive(s)" [title]="s.isActive ? 'Deactivate' : 'Activate'">
+                        {{ s.isActive ? '🚫' : '✅' }}
+                      </button>
+                    </div>
+                    <span *ngIf="s.role === 'CLIENT_ADMIN'" class="text-xs opacity-40">owner</span>
+                  </td>
+                </tr>
+                <tr *ngIf="staffList().length === 0 && !staffLoading()">
+                  <td colspan="6" class="text-center opacity-60 py-8">No staff yet. Add your first team member.</td>
+                </tr>
+                <tr *ngIf="staffLoading()"><td colspan="6" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Staff create/edit modal -->
+      <dialog class="modal" [class.modal-open]="staffEditorOpen()">
+        <div class="modal-box max-w-md">
+          <h3 class="font-bold text-lg">{{ editingStaffId() ? '✎ Edit staff' : '+ Add staff' }}</h3>
+          <form [formGroup]="staffForm" (ngSubmit)="saveStaff()" class="grid grid-cols-1 gap-3 mt-3">
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Full name *</span></div>
+              <input class="input input-bordered input-sm" formControlName="fullName" placeholder="e.g. Asha Verma" />
+            </label>
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Email *</span></div>
+              <input class="input input-bordered input-sm" type="email" formControlName="email" placeholder="name@example.com"
+                     [class.input-disabled]="!!editingStaffId()" [readonly]="!!editingStaffId()" />
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Role *</span></div>
+                <select class="select select-bordered select-sm" formControlName="role">
+                  <option value="STAFF">Staff</option>
+                  <option value="BRANCH_ADMIN">Branch admin</option>
+                </select>
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Branch</span></div>
+                <select class="select select-bordered select-sm" formControlName="branchId">
+                  <option value="">— None —</option>
+                  <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+                </select>
+              </label>
+            </div>
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Phone</span></div>
+              <input class="input input-bordered input-sm" formControlName="phone" placeholder="+91xxxxxxxxxx" />
+            </label>
+            <label class="form-control">
+              <div class="label py-1">
+                <span class="label-text">{{ editingStaffId() ? 'Reset password (optional)' : 'Password *' }}</span>
+              </div>
+              <input class="input input-bordered input-sm" type="password" formControlName="password"
+                     [placeholder]="editingStaffId() ? 'Leave blank to keep current' : 'Min 8 characters'" />
+            </label>
+            <p class="text-xs opacity-60">New staff are asked to set their own password on first login.</p>
+            <div class="modal-action">
+              <button type="button" class="btn btn-ghost" (click)="closeStaffEditor()">Cancel</button>
+              <button type="submit" class="btn btn-primary" [disabled]="savingStaff() || staffForm.invalid">
+                <span *ngIf="savingStaff()" class="loading loading-spinner loading-sm"></span>
+                {{ editingStaffId() ? 'Save changes' : 'Add staff' }}
+              </button>
+            </div>
+          </form>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeStaffEditor()">close</button></form>
+      </dialog>
+    </ng-container>
   `,
 })
 export class SettingsComponent implements OnInit {
@@ -561,6 +670,10 @@ export class SettingsComponent implements OnInit {
   private auth = inject(AuthService);
   private toast = inject(ToastService);
   private fb = inject(FormBuilder);
+  private idle = inject(IdleService);
+  private staffApi = inject(StaffApiService);
+  private branchesApi = inject(BranchesApiService);
+  private route = inject(ActivatedRoute);
   theme = inject(ThemeService);
 
   sections: { key: Section; label: string; icon: string }[] = [
@@ -570,9 +683,16 @@ export class SettingsComponent implements OnInit {
     { key: 'backup',    label: 'Backup & Storage',icon: '🗄' },
     { key: 'biometric', label: 'Biometric Device',icon: '🛡' },
     { key: 'security',  label: 'Security',        icon: '🔒' },
+    { key: 'staff',     label: 'Staff',           icon: '👥' },
     { key: 'appearance',label: 'Appearance',      icon: '🎨' },
     { key: 'about',     label: 'About',           icon: 'ⓘ' },
   ];
+
+  /** Staff management is admin-only; everyone else sees the rest. */
+  canManageStaff = computed(() => this.auth.user()?.role === 'CLIENT_ADMIN');
+  visibleSections = computed(() =>
+    this.sections.filter((s) => s.key !== 'staff' || this.canManageStaff()),
+  );
 
   section = signal<Section>('profile');
   settings = signal<AllSettings | null>(null);
@@ -589,6 +709,23 @@ export class SettingsComponent implements OnInit {
   showBioPw = signal(false);
   showPw = signal({ current: false, next: false, confirm: false });
   lastBackupAt = signal<Date | null>(null);
+
+  // ----- Staff management -----
+  staffList = signal<Staff[]>([]);
+  branches = signal<Branch[]>([]);
+  staffLoading = signal(false);
+  savingStaff = signal(false);
+  staffEditorOpen = signal(false);
+  editingStaffId = signal<string | null>(null);
+
+  staffForm = this.fb.group({
+    fullName: ['', [Validators.required, Validators.minLength(2)]],
+    email: ['', [Validators.required, Validators.email]],
+    role: ['STAFF' as 'STAFF' | 'BRANCH_ADMIN', Validators.required],
+    branchId: [''],
+    phone: [''],
+    password: ['', [Validators.minLength(8)]],
+  });
 
   tenantSlug = computed(() => this.auth.user()?.tenantSlug ?? '');
 
@@ -653,6 +790,12 @@ export class SettingsComponent implements OnInit {
   });
 
   ngOnInit() {
+    // Deep-link support: /settings?section=staff opens that tab directly.
+    const wanted = this.route.snapshot.queryParamMap.get('section') as Section | null;
+    if (wanted && this.sections.some((s) => s.key === wanted)) {
+      if (wanted !== 'staff' || this.canManageStaff()) this.section.set(wanted);
+    }
+
     forkJoin({
       settings: this.api.get(),
       profile: this.api.getProfile(),
@@ -670,12 +813,111 @@ export class SettingsComponent implements OnInit {
         this.bioForm.patchValue(r.settings.biometric);
         this.secForm.patchValue(r.settings.security);
         this.backupForm.patchValue(r.settings.backup);
+        // Keep the live auto-logout timer in sync with the loaded value.
+        this.idle.configure(r.settings.security.autoLogoutMin);
       },
       error: () => this.toast.error('Could not load settings'),
     });
     const last = localStorage.getItem('lms.lastBackupAt');
     if (last) this.lastBackupAt.set(new Date(last));
+
+    if (this.canManageStaff()) {
+      this.loadStaff();
+      this.branchesApi.list().subscribe({ next: (bs) => this.branches.set(bs), error: () => {} });
+    }
   }
+
+  // ----- Staff management -----
+  loadStaff() {
+    this.staffLoading.set(true);
+    this.staffApi.list().subscribe({
+      next: (rows) => { this.staffList.set(rows); this.staffLoading.set(false); },
+      error: () => { this.staffLoading.set(false); this.toast.error('Could not load staff'); },
+    });
+  }
+
+  openStaffCreate() {
+    this.editingStaffId.set(null);
+    this.staffForm.reset({ fullName: '', email: '', role: 'STAFF', branchId: '', phone: '', password: '' });
+    this.staffForm.get('email')!.enable();
+    this.staffForm.get('password')!.setValidators([Validators.required, Validators.minLength(8)]);
+    this.staffForm.get('password')!.updateValueAndValidity();
+    this.staffEditorOpen.set(true);
+    this.blurActive();
+  }
+
+  openStaffEdit(s: Staff) {
+    this.editingStaffId.set(s.id);
+    this.staffForm.reset({
+      fullName: s.fullName,
+      email: s.email,
+      role: (s.role === 'BRANCH_ADMIN' ? 'BRANCH_ADMIN' : 'STAFF'),
+      branchId: s.branchId ?? '',
+      phone: s.phone ?? '',
+      password: '',
+    });
+    // Email is immutable here; password optional (blank = keep current).
+    this.staffForm.get('email')!.disable();
+    this.staffForm.get('password')!.setValidators([Validators.minLength(8)]);
+    this.staffForm.get('password')!.updateValueAndValidity();
+    this.staffEditorOpen.set(true);
+    this.blurActive();
+  }
+
+  closeStaffEditor() { this.staffEditorOpen.set(false); }
+
+  saveStaff() {
+    if (this.staffForm.invalid) return;
+    const v = this.staffForm.getRawValue();
+    this.savingStaff.set(true);
+    const id = this.editingStaffId();
+
+    if (id) {
+      const patch: UpdateStaffDto = {
+        fullName: v.fullName!.trim(),
+        role: v.role!,
+        branchId: v.branchId || undefined,
+        phone: v.phone?.trim() || undefined,
+        ...(v.password ? { password: v.password } : {}),
+      };
+      this.staffApi.update(id, patch).subscribe({
+        next: () => { this.toast.success('Staff updated'); this.afterStaffSave(); },
+        error: (e) => this.failStaff(e, 'Could not update staff'),
+      });
+    } else {
+      const dto: CreateStaffDto = {
+        fullName: v.fullName!.trim(),
+        email: v.email!.trim(),
+        password: v.password!,
+        role: v.role!,
+        branchId: v.branchId || undefined,
+        phone: v.phone?.trim() || undefined,
+      };
+      this.staffApi.create(dto).subscribe({
+        next: () => { this.toast.success('Staff added'); this.afterStaffSave(); },
+        error: (e) => this.failStaff(e, 'Could not add staff'),
+      });
+    }
+  }
+
+  toggleStaffActive(s: Staff) {
+    this.staffApi.update(s.id, { isActive: !s.isActive }).subscribe({
+      next: () => { this.toast.success(s.isActive ? 'Staff deactivated' : 'Staff activated'); this.loadStaff(); },
+      error: (e) => this.failStaff(e, 'Could not update staff'),
+    });
+  }
+
+  private afterStaffSave() {
+    this.savingStaff.set(false);
+    this.staffEditorOpen.set(false);
+    this.loadStaff();
+  }
+  private failStaff(err: any, fallback: string) {
+    this.savingStaff.set(false);
+    const msg = err?.error?.message;
+    this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? fallback));
+  }
+  private blurActive() { (document.activeElement as HTMLElement | null)?.blur(); }
 
   initials(name?: string | null): string {
     if (!name) return '?';
@@ -742,6 +984,8 @@ export class SettingsComponent implements OnInit {
     this.api.update(patch).subscribe({
       next: (r) => {
         this.settings.set(r);
+        // Apply the new inactivity limit immediately — no reload needed.
+        if (s === 'security') this.idle.configure(r.security.autoLogoutMin);
         this.toast.success('Settings saved');
         this.savingSection.set(false);
       },

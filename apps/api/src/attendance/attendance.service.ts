@@ -64,7 +64,7 @@ export class AttendanceService {
     const tenantId = this.tenantCtx.tenantId;
     const student = await this.prisma.student.findFirst({
       where: { id: studentId, tenantId },
-      select: { id: true, code: true, fullName: true, photoUrl: true, branchId: true, expiresAt: true },
+      select: { id: true, code: true, fullName: true, photoUrl: true, branchId: true, expiresAt: true, outstandingBalance: true },
     });
     if (!student) throw new NotFoundException('Student not found');
     const dayStart = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
@@ -114,15 +114,10 @@ export class AttendanceService {
     const monthlyTotal = allocations.reduce((s, a) => s + a.monthlyRate, 0);
     // An allocation is "confirmed" when a seat is CONFIRMED or a PG bed is ACTIVE.
     const confirmed = allocations.some((a) => a.status === 'CONFIRMED' || a.status === 'ACTIVE');
-    // Balance owed now = this month's fee if the next due date has arrived/passed.
-    let balance = 0;
-    if (nextDueDate) {
-      const due = new Date(nextDueDate);
-      const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
-      const t = new Date();
-      const today0 = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
-      if (dueDay <= today0) balance = monthlyTotal;
-    }
+    // Authoritative signed balance (expected − paid − discount), maintained by
+    // BalanceService. > 0 = due, < 0 = advance/credit, 0 = settled — so advance
+    // payments are reflected correctly instead of a naive "fee if due passed".
+    const balance = Number(student.outstandingBalance ?? 0);
 
     return {
       student, attendance, allocations, nextDueDate, expiresAt: student.expiresAt,

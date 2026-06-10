@@ -7,6 +7,10 @@ export interface DashboardKpis {
   monthRevenue: number;
   duePaymentsCount: number;
   expiringSoonCount: number; // plans expiring in 7 days
+  newStudentsThisMonth: number;
+  expenseThisMonth: number;
+  netThisMonth: number;          // monthRevenue - expenseThisMonth
+  outstandingDuesAmount: number; // sum of PENDING payment amounts
 }
 
 export interface TimeSeriesPoint {
@@ -20,7 +24,29 @@ export interface DashboardCharts {
   seatOccupancyByZone: TimeSeriesPoint[];
 }
 
+export interface RecentStudent {
+  id: string;
+  fullName: string;
+  code: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface RecentPayment {
+  id: string;
+  amount: number;
+  method: string;
+  studentName: string;
+  paidAt: string | null;
+}
+
+export interface DashboardRecent {
+  students: RecentStudent[];
+  payments: RecentPayment[];
+}
+
 export interface DashboardSummary {
   kpis: DashboardKpis;
   charts: DashboardCharts;
+  recent: DashboardRecent;
 }

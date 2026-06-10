@@ -54,6 +54,10 @@ export interface AlertsResponse {
   counts: { overdue: number; dueSoon: number; expiringSoon: number; balanceDue: number; total: number };
 }
 
+export type NotifyChannel = 'EMAIL' | 'SMS' | 'WHATSAPP';
+export interface NotifyRecipient { studentId: string; message: string; subject?: string }
+export interface NotifyResult { channel: NotifyChannel; total: number; sent: number; failed: number; errors: string[] }
+
 @Injectable({ providedIn: 'root' })
 export class AlertsApiService {
   private http = inject(HttpClient);
@@ -66,5 +70,9 @@ export class AlertsApiService {
     if (opts.dateFrom) params = params.set('dateFrom', opts.dateFrom);
     if (opts.dateTo) params = params.set('dateTo', opts.dateTo);
     return this.http.get<AlertsResponse>(this.base, { params });
+  }
+
+  notify(channel: NotifyChannel, recipients: NotifyRecipient[]) {
+    return this.http.post<NotifyResult>(`${this.base}/notify`, { channel, recipients });
   }
 }

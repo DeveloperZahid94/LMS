@@ -9,6 +9,7 @@ import {
 } from '@lms/shared';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { StudentsApiService } from '../students/students.service';
+import { StaffApiService, Staff } from '../../core/services/staff.service';
 import { ToastService } from '../../core/services/toast.service';
 import {
   SearchableSelectComponent, ComboItem,
@@ -328,7 +329,7 @@ interface StudentLite {
           <table class="table table-zebra">
             <thead>
               <tr>
-                <th>Seat</th><th>Student</th><th>Shift</th><th>Rate</th><th>Paid</th><th>Status</th><th>Start</th><th>End</th><th class="text-right">Actions</th>
+                <th>Seat</th><th>Student</th><th>Shift</th><th>Rate</th><th>Paid</th><th>Due</th><th>Status</th><th>Start</th><th>End</th><th class="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -356,6 +357,15 @@ interface StudentLite {
                   </div>
                   <ng-template #paidPlain>₹{{ a.paidAmount | number }}</ng-template>
                 </td>
+                <td class="text-sm">
+                  <ng-container *ngIf="a.monthlyRate != null; else dueDash">
+                    <span class="font-medium" [class.text-error]="(a.dueAmount ?? 0) > 0" [class.text-success]="(a.dueAmount ?? 0) === 0">
+                      ₹{{ a.dueAmount | number }}
+                    </span>
+                    <span *ngIf="isAllocOverdue(a)" class="badge badge-error badge-xs ml-1" title="Installment past its due date">overdue</span>
+                  </ng-container>
+                  <ng-template #dueDash>—</ng-template>
+                </td>
                 <td>
                   <span class="badge badge-sm"
                     [class.badge-warning]="a.status === 'TEMPORARY'"
@@ -374,10 +384,10 @@ interface StudentLite {
                 </td>
               </tr>
               <tr *ngIf="allocations().length === 0 && !allocLoading()">
-                <td colspan="9" class="text-center opacity-60 py-8">No allocations match the current filters.</td>
+                <td colspan="10" class="text-center opacity-60 py-8">No allocations match the current filters.</td>
               </tr>
               <tr *ngIf="allocLoading()">
-                <td colspan="9" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td>
+                <td colspan="10" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td>
               </tr>
             </tbody>
           </table>
@@ -464,6 +474,14 @@ interface StudentLite {
                 <input class="input input-bordered" type="date" formControlName="endDate" />
               </label>
             </div>
+
+            <label class="form-control mt-2" *ngIf="staff().length">
+              <div class="label py-1"><span class="label-text">Assigned by</span></div>
+              <select class="select select-bordered" formControlName="assignedById">
+                <option value="">— Me (current user) —</option>
+                <option *ngFor="let s of staff()" [value]="s.id">{{ s.fullName }}</option>
+              </select>
+            </label>
 
             <div class="mt-3" *ngIf="conflictInfo() as info">
               <div class="alert" [class.alert-success]="info.kind==='free'" [class.alert-error]="info.kind==='conflict'">
@@ -648,20 +666,39 @@ interface StudentLite {
           </div>
         </div>
 
-        <div class="divider mt-4 mb-2">Payment progress</div>
-        <div class="text-sm">
-          <div class="flex justify-between mb-1">
-            <span>Paid: <span class="font-medium">₹{{ v.paidAmount | number }}</span></span>
-            <span>Monthly rate: {{ v.monthlyRate ? '₹' + (v.monthlyRate | number) : '—' }}</span>
+        <div class="divider mt-4 mb-2">Cabin payment</div>
+        <!-- Cabin-only payment breakdown: monthly rate, collected, and what's still due -->
+        <div class="grid grid-cols-3 gap-2 mb-3">
+          <div class="rounded-lg bg-base-200 p-2.5 text-center">
+            <div class="text-[11px] uppercase tracking-wider opacity-60">Monthly rate</div>
+            <div class="font-bold">{{ v.monthlyRate ? '₹' + (v.monthlyRate | number) : '—' }}</div>
           </div>
+          <div class="rounded-lg bg-base-200 p-2.5 text-center">
+            <div class="text-[11px] uppercase tracking-wider opacity-60">Paid</div>
+            <div class="font-bold text-success">₹{{ v.paidAmount | number }}</div>
+          </div>
+          <div class="rounded-lg bg-base-200 p-2.5 text-center">
+            <div class="text-[11px] uppercase tracking-wider opacity-60">Due</div>
+            <div class="font-bold" [class.text-error]="(v.dueAmount ?? 0) > 0" [class.text-success]="(v.dueAmount ?? 0) === 0">
+              ₹{{ v.dueAmount | number }}
+            </div>
+          </div>
+        </div>
+        <div class="text-sm">
           <progress class="progress w-full"
             [class.progress-success]="(v.paidPct ?? 0) >= 50"
             [class.progress-warning]="(v.paidPct ?? 0) < 50"
             [value]="v.paidPct ?? 0" max="100"></progress>
-          <div class="text-xs opacity-60 mt-1">
-            {{ v.paidPct ?? 0 }}% of monthly rate
-            <span *ngIf="(v.paidPct ?? 0) < 50 && v.status === 'TEMPORARY'"> · ≥ 50% needed to confirm</span>
-            <span *ngIf="(v.paidPct ?? 0) >= 50 && v.status === 'CONFIRMED'"> · confirmed</span>
+          <div class="flex items-center justify-between text-xs opacity-60 mt-1">
+            <span>
+              {{ v.paidPct ?? 0 }}% of monthly rate
+              <span *ngIf="(v.paidPct ?? 0) < 50 && v.status === 'TEMPORARY'"> · ≥ 50% needed to confirm</span>
+              <span *ngIf="(v.paidPct ?? 0) >= 50 && v.status === 'CONFIRMED'"> · confirmed</span>
+            </span>
+            <span *ngIf="v.nextDueDate" [class.text-error]="isAllocOverdue(v)">
+              Next due: {{ v.nextDueDate | date:'mediumDate' }}
+              <span *ngIf="isAllocOverdue(v)">· overdue</span>
+            </span>
           </div>
         </div>
 
@@ -750,6 +787,7 @@ export class SeatsListComponent implements OnInit {
   private allocApi = inject(SeatAssignmentsApiService);
   private branchesApi = inject(BranchesApiService);
   private studentsApi = inject(StudentsApiService);
+  private staffApi = inject(StaffApiService);
   private toast = inject(ToastService);
   private fb = inject(FormBuilder);
 
@@ -790,7 +828,10 @@ export class SeatsListComponent implements OnInit {
     shift: [Shift.FULL_DAY, Validators.required],
     startDate: [new Date().toISOString().slice(0, 10), Validators.required],
     endDate: [''],
+    assignedById: [''],
   });
+
+  staff = signal<Staff[]>([]);
 
   studentItems = computed<ComboItem[]>(() =>
     this.allocatableStudents().map((s) => ({
@@ -893,6 +934,12 @@ export class SeatsListComponent implements OnInit {
     );
   }
 
+  /** True when an allocation's next installment date has already passed. */
+  isAllocOverdue(a: SeatAssignment): boolean {
+    if (!a.nextDueDate) return false;
+    return a.nextDueDate.slice(0, 10) < new Date().toISOString().slice(0, 10);
+  }
+
   selectedSeat = computed(() => this.seats().find((s) => s.id === this.allocateForm.value.seatId) ?? null);
 
   conflictInfo = computed(() => {
@@ -937,6 +984,7 @@ export class SeatsListComponent implements OnInit {
 
   ngOnInit() {
     this.branchesApi.list().subscribe((bs) => this.branches.set(bs));
+    this.staffApi.list(true).subscribe({ next: (st) => this.staff.set(st), error: () => {} });
     this.reloadSeats();
     this.allocSearch$.pipe(debounceTime(250)).subscribe(() => {
       this.allocPage.set(1);
@@ -1253,6 +1301,7 @@ export class SeatsListComponent implements OnInit {
       shift: v.shift!,
       startDate: v.startDate!,
       endDate: v.endDate || undefined,
+      assignedById: v.assignedById || undefined,
     };
     this.allocApi.create(payload).subscribe({
       next: (a) => {
@@ -1279,6 +1328,7 @@ export class SeatsListComponent implements OnInit {
       shift: Shift.FULL_DAY,
       startDate: new Date().toISOString().slice(0, 10),
       endDate: '',
+      assignedById: '',
     });
   }
 

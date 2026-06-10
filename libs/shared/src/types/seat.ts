@@ -78,13 +78,18 @@ export interface SeatAssignment {
   nextDueDate: string | null;
   createdAt: string;
 
+  assignedById?: string | null;
+
   // Hydrated relations (from the API)
   seat?: { id: string; code: string; type: SeatType; branchId: string; zone?: string | null; floor?: string | null };
   student?: { id: string; code: string; fullName: string; phone: string };
+  assignedBy?: { id: string; fullName: string; role: string } | null;
 
   // Computed by API
   paidAmount?: number;
   paidPct?: number;
+  /** Outstanding cabin amount = monthlyRate − paidAmount (0 when fully paid). */
+  dueAmount?: number | null;
 }
 
 export interface CreateSeatAssignmentDto {
@@ -93,4 +98,6 @@ export interface CreateSeatAssignmentDto {
   shift: Shift;
   startDate: string;
   endDate?: string;
+  /** Staff member who handled this allocation. Defaults to the logged-in user. */
+  assignedById?: string;
 }

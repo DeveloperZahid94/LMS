@@ -216,6 +216,9 @@ export class PgRoomsService {
       throw new BadRequestException('Student already has an active PG room assignment');
     }
 
+    // Who handled this allocation — the explicit picked staff, else the caller.
+    const assignedById = await this.resolveAssignedBy(tenantId, dto.assignedById);
+
     const created = await this.db.pgRoomAssignment.create({
       data: {
         tenantId,
@@ -227,9 +230,11 @@ export class PgRoomsService {
         nextDueDate: dto.nextDueDate ? new Date(dto.nextDueDate) : null,
         notes: dto.notes ?? null,
         status: 'ACTIVE',
+        assignedById,
       },
       include: {
         student: { select: { id: true, code: true, fullName: true, phone: true, email: true } },
+        assignedBy: { select: { id: true, fullName: true, role: true } },
       },
     });
     await this.audit.record({
@@ -238,6 +243,17 @@ export class PgRoomsService {
     });
     await this.balance.recompute(tenantId, dto.studentId);
     return created;
+  }
+
+  /**
+   * Resolves the staff member to attribute a bed allocation to. Uses the picked
+   * staff if valid for this tenant, otherwise the logged-in user; null if neither.
+   */
+  private async resolveAssignedBy(tenantId: string, pickedId?: string): Promise<string | null> {
+    const candidate = pickedId || this.tenantCtx.userId;
+    if (!candidate) return null;
+    const staff = await this.prisma.user.findFirst({ where: { id: candidate, tenantId }, select: { id: true } });
+    return staff?.id ?? null;
   }
 
   async unassign(assignmentId: string) {
