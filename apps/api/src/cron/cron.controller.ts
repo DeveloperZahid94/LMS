@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { DueAlertsJob } from './due-alerts.job';
 import { DueRemindersJob } from './due-reminders.job';
 import { Public } from '../auth/decorators/public.decorator';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Vercel cron triggers these endpoints over HTTP and includes a header
@@ -16,7 +17,28 @@ export class CronController {
   constructor(
     private dueAlerts: DueAlertsJob,
     private dueReminders: DueRemindersJob,
+    private prisma: PrismaService,
   ) {}
+
+  /**
+   * Public DB health check — pings Postgres with an 8s cap and returns the
+   * actual error text. Lets us diagnose connectivity (e.g. on Vercel) without
+   * needing function logs. Safe to keep; exposes no data.
+   */
+  @Public()
+  @Get('health')
+  async health() {
+    const started = Date.now();
+    try {
+      await Promise.race([
+        this.prisma.$queryRaw`SELECT 1`,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('DB ping timed out after 8s')), 8000)),
+      ]);
+      return { ok: true, db: 'reachable', ms: Date.now() - started, hasDatabaseUrl: !!process.env.DATABASE_URL };
+    } catch (e: any) {
+      return { ok: false, db: 'unreachable', ms: Date.now() - started, hasDatabaseUrl: !!process.env.DATABASE_URL, error: e?.message ?? String(e) };
+    }
+  }
 
   @Get('due-alerts')
   async runDueAlerts(@Headers('authorization') auth?: string) {
