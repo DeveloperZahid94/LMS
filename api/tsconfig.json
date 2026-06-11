@@ -2,7 +2,8 @@
   "//": "Used by @vercel/node when compiling the serverless function (api/index.ts).",
   "//2": "NestJS requires LEGACY decorators — without experimentalDecorators here,",
   "//3": "esbuild emits TC39 decorators (__esDecorate) and Nest's @Controller/@Post",
-  "//4": "throw 'Cannot read properties of undefined (reading value)' at module load.",
+  "//4": "throw at module load. We intentionally do NOT map @lms/shared here so it",
+  "//5": "resolves via node_modules to its built dist/index.js at runtime.",
   "compilerOptions": {
     "module": "commonjs",
     "target": "es2021",
@@ -13,11 +14,6 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "baseUrl": "..",
-    "paths": {
-      "@lms/shared": ["libs/shared/src/index.ts"],
-      "@lms/shared/*": ["libs/shared/src/*"]
-    }
+    "skipLibCheck": true
   }
 }

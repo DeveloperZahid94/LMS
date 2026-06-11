@@ -1,0 +1,18 @@
+{
+  "//": "Compiles @lms/shared to JS so it resolves at runtime in the Vercel Lambda (node_modules/@lms/shared/dist).",
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2021",
+    "moduleResolution": "node",
+    "declaration": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.spec.ts"]
+}

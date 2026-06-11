@@ -23,9 +23,10 @@
     "build": "nx run-many -t build -p api,web",
     "build:api": "nx build api",
     "build:web": "nx build web",
+    "build:shared": "tsc -p libs/shared/tsconfig.lib.json",
     "lint": "nx run-many -t lint",
     "test": "nx run-many -t test",
-    "vercel-build": "npm run prisma:generate && nx build web"
+    "vercel-build": "npm run prisma:generate && npm run build:shared && nx build web"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
