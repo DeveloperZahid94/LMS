@@ -23,7 +23,13 @@
           "budgets": [
             { "type": "initial", "maximumWarning": "1mb", "maximumError": "2mb" }
           ],
-          "outputHashing": "all"
+          "outputHashing": "all",
+          "fileReplacements": [
+            {
+              "replace": "apps/web/src/environments/environment.ts",
+              "with": "apps/web/src/environments/environment.prod.ts"
+            }
+          ]
         },
         "development": {
           "optimization": false,
