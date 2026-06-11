@@ -5,6 +5,10 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["fullTextSearch"]
+  // "native" for local dev; the rhel targets are the query engine for Vercel's
+  // serverless runtime (Amazon Linux). Without these the API crashes on Vercel
+  // with "Query engine binary for current platform could not be found".
+  binaryTargets   = ["native", "rhel-openssl-3.0.x", "rhel-openssl-1.0.x"]
 }
 
 datasource db {
