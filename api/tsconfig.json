@@ -1,0 +1,23 @@
+{
+  "//": "Used by @vercel/node when compiling the serverless function (api/index.ts).",
+  "//2": "NestJS requires LEGACY decorators — without experimentalDecorators here,",
+  "//3": "esbuild emits TC39 decorators (__esDecorate) and Nest's @Controller/@Post",
+  "//4": "throw 'Cannot read properties of undefined (reading value)' at module load.",
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2021",
+    "moduleResolution": "node",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "baseUrl": "..",
+    "paths": {
+      "@lms/shared": ["libs/shared/src/index.ts"],
+      "@lms/shared/*": ["libs/shared/src/*"]
+    }
+  }
+}
