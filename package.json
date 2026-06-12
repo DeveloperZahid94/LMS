@@ -26,7 +26,7 @@
     "build:shared": "tsc -p libs/shared/tsconfig.lib.json",
     "lint": "nx run-many -t lint",
     "test": "nx run-many -t test",
-    "vercel-build": "npm run prisma:generate && npm run build:shared && nx build web"
+    "vercel-build": "npm run prisma:generate && nx build api && nx build web"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
