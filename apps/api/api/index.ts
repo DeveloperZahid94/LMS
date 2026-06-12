@@ -64,5 +64,6 @@ export default async function handler(req: any, res: any) {
     res.statusCode = 500;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ error: 'API bootstrap failed', detail, build: BUILD }));
+    return;
   }
 }
