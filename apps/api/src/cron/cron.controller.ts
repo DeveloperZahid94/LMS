@@ -25,6 +25,17 @@ export class CronController {
    * actual error text. Lets us diagnose connectivity (e.g. on Vercel) without
    * needing function logs. Safe to keep; exposes no data.
    */
+  /** Reports the deployed commit so we can confirm WHICH build is live. */
+  @Public()
+  @Get('version')
+  version() {
+    return {
+      build: 'db-resilient-1',
+      commit: process.env.VERCEL_GIT_COMMIT_SHA ?? 'local',
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+    };
+  }
+
   @Public()
   @Get('health')
   async health() {
