@@ -6,13 +6,14 @@
   "installCommand": "npm install --legacy-peer-deps --include=dev",
   "framework": null,
   "functions": {
-    "api/[...path].ts": {
+    "api/serverless.ts": {
       "memory": 1024,
       "maxDuration": 30,
       "includeFiles": "node_modules/.prisma/client/**"
     }
   },
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/serverless" },
     { "source": "/((?!api).*)", "destination": "/index.html" }
   ],
   "crons": [
