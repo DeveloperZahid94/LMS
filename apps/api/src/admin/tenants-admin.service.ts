@@ -155,8 +155,12 @@ export class TenantsAdminService {
     return this.prisma.tenant.update({ where: { id: tenantId }, data: { status } });
   }
 
-  /** Edit a tenant's core profile (name/email/phone/slug). Slug is the login
-   *  identifier, so changing it is allowed but enforced unique. */
+  /**
+   * Edit a tenant's core profile (name/email/phone/slug). The slug is the login
+   * identifier, so changing it changes what staff type at login. The email is
+   * also the primary admin's LOGIN email, so we keep that user's email in sync —
+   * after this edit, that admin signs in with the new slug + new email.
+   */
   async update(tenantId: string, dto: UpdateTenantDto) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException('Tenant not found');
@@ -174,6 +178,25 @@ export class TenantsAdminService {
       const clash = await this.prisma.tenant.findUnique({ where: { slug } });
       if (clash && clash.id !== tenantId) throw new BadRequestException('That slug is already taken.');
       data.slug = slug;
+    }
+
+    // Keep the primary admin's login email in sync with the tenant email, so the
+    // edited email is what they actually sign in with.
+    const emailChanged = data.email !== undefined && data.email !== tenant.email;
+    if (emailChanged) {
+      const admin = await this.prisma.user.findFirst({
+        where: { tenantId, role: 'CLIENT_ADMIN' },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (admin && admin.email !== data.email) {
+        const conflict = await this.prisma.user.findFirst({
+          where: { tenantId, email: data.email, NOT: { id: admin.id } },
+        });
+        if (conflict) {
+          throw new BadRequestException('Another user in this tenant already uses that email.');
+        }
+        await this.prisma.user.update({ where: { id: admin.id }, data: { email: data.email } });
+      }
     }
 
     return this.prisma.tenant.update({

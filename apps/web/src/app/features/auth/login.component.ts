@@ -128,22 +128,8 @@ import { ToastContainerComponent } from '../../shared/components/toast-container
           </form>
 
           <!-- secondary links -->
-          <div class="flex items-center justify-between mt-5 text-xs">
+          <div class="flex items-center justify-center mt-5 text-xs">
             <a routerLink="/student-login" class="link link-hover opacity-70">🎓 Student portal</a>
-            <a routerLink="/superadmin" class="link link-hover opacity-70">Platform owner →</a>
-          </div>
-
-          <!-- seeded credentials hint -->
-          <div class="mt-7 rounded-xl border border-base-300 bg-base-200/60 p-3 text-xs">
-            <div class="font-semibold opacity-60 uppercase tracking-wider text-[10px] mb-1.5">Demo credentials</div>
-            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 opacity-80">
-              <code class="bg-base-100 px-1.5 py-0.5 rounded border border-base-300">admin&#64;demo-library.local</code>
-              <span class="opacity-50">/</span>
-              <code class="bg-base-100 px-1.5 py-0.5 rounded border border-base-300">Admin&#64;123</code>
-              <span class="opacity-50">· slug</span>
-              <code class="bg-base-100 px-1.5 py-0.5 rounded border border-base-300">demo-library</code>
-            </div>
-            <button type="button" class="link link-primary mt-2" (click)="fillDemo()">Fill demo credentials →</button>
           </div>
         </div>
       </main>

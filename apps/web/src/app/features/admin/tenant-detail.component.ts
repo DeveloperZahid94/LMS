@@ -234,8 +234,9 @@ type Tab = 'overview' | 'users' | 'features' | 'email';
             <div class="label py-1"><span class="label-text-alt opacity-50">lowercase letters, numbers and hyphens only</span></div>
           </label>
           <label class="form-control">
-            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Email</span></div>
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Email (primary admin login)</span></div>
             <input class="input input-bordered" type="email" [(ngModel)]="editEmail" placeholder="owner@example.com" />
+            <div class="label py-1"><span class="label-text-alt opacity-50">The admin signs in with this email + the slug above</span></div>
           </label>
           <label class="form-control">
             <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Phone</span></div>
