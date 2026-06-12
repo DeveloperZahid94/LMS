@@ -13,6 +13,7 @@
     }
   },
   "rewrites": [
+    { "source": "/api/ping", "destination": "/api/ping" },
     { "source": "/api/(.*)", "destination": "/api/serverless" },
     { "source": "/((?!api).*)", "destination": "/index.html" }
   ],
