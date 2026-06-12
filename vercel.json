@@ -15,6 +15,7 @@
   "rewrites": [
     { "source": "/api/ping", "destination": "/api/ping" },
     { "source": "/api/dbtest", "destination": "/api/dbtest" },
+    { "source": "/api/nesttest", "destination": "/api/nesttest" },
     { "source": "/api/(.*)", "destination": "/api/app" },
     { "source": "/((?!api).*)", "destination": "/index.html" }
   ],
