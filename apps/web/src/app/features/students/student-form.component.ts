@@ -442,7 +442,7 @@ interface StepDef {
 
                     <label class="form-control">
                       <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Shift *</span></div>
-                      <div class="grid grid-cols-5 gap-1.5">
+                      <div class="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                         <button *ngFor="let sh of shifts" type="button"
                                 class="btn btn-xs"
                                 [class.btn-primary]="cabinGroup.value.shift === sh"

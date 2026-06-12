@@ -13,6 +13,20 @@ body {
 .table tbody tr:hover { background: hsl(var(--b2) / 0.5); }
 
 // ----------------------------------------------------------------------------
+// Badge polish — DaisyUI badges have a fixed height, so multi-word labels
+// ("Lunch + Dinner", "₹1,000 due") wrap and clip, looking distorted. Keep them
+// on one line; if a label is genuinely long, grow the height instead of clipping.
+// ----------------------------------------------------------------------------
+.badge {
+  white-space: nowrap;
+  height: auto;
+  min-height: 1.25rem;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+  line-height: 1.1;
+}
+
+// ----------------------------------------------------------------------------
 // Global modal polish — blurred backdrop, softer corners, breathier padding.
 // Mirrors the "Add New Cabin" modal style from StudyLounge. Applies to every
 // <dialog class="modal"> we already have, so no per-component changes needed.

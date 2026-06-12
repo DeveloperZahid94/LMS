@@ -101,20 +101,20 @@ type StatusFilter = 'ALL' | TiffinStatus;
                 <div class="text-xs opacity-60">{{ t.student?.code }} · {{ t.student?.phone }}</div>
               </td>
               <td>
-                <div class="flex items-center gap-1.5">
-                  <span class="badge badge-sm" [class.badge-success]="t.mealType==='VEG'" [class.badge-error]="t.mealType==='NONVEG'">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="badge badge-sm whitespace-nowrap" [class.badge-success]="t.mealType==='VEG'" [class.badge-error]="t.mealType==='NONVEG'">
                     {{ t.mealType === 'VEG' ? 'Veg' : 'Non-veg' }}
                   </span>
-                  <span class="badge badge-sm badge-outline">{{ mealPlanLabel(t.mealPlan) }}</span>
+                  <span class="badge badge-sm badge-outline whitespace-nowrap">{{ mealPlanLabel(t.mealPlan) }}</span>
                 </div>
                 <div class="text-xs opacity-50 mt-0.5" *ngIf="t.pausedDays > 0">{{ t.pausedDays }} day(s) paused total</div>
               </td>
               <td class="font-medium">₹{{ t.monthlyRate | number }}<span class="opacity-50 text-xs">/mo</span></td>
               <td>
                 <div class="text-xs">Paid: <span class="font-medium">₹{{ t.paidAmount | number }}</span></div>
-                <div class="flex items-center gap-1 mt-0.5">
-                  <span *ngIf="t.balance > 0" class="badge badge-error badge-sm" title="Tiffin amount due">₹{{ t.balance | number }} due</span>
-                  <span *ngIf="t.balance < 0" class="badge badge-success badge-sm" title="Tiffin advance / credit">₹{{ -t.balance | number }} adv</span>
+                <div class="flex items-center gap-1 mt-0.5 flex-wrap">
+                  <span *ngIf="t.balance > 0" class="badge badge-error badge-sm whitespace-nowrap" title="Tiffin amount due">₹{{ t.balance | number }} due</span>
+                  <span *ngIf="t.balance < 0" class="badge badge-success badge-sm whitespace-nowrap" title="Tiffin advance / credit">₹{{ -t.balance | number }} adv</span>
                   <span *ngIf="t.balance === 0" class="text-xs opacity-50">Settled</span>
                   <button *ngIf="t.balance > 0" class="btn btn-ghost btn-xs text-error" (click)="openSettle(t)" title="Collect tiffin payment">Collect</button>
                 </div>

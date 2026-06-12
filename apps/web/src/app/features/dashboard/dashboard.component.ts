@@ -80,6 +80,7 @@ Chart.register(...registerables);
               <h3 class="font-semibold flex items-center gap-2 mb-1">
                 <span class="text-base">🧑‍🎓</span> Recently added students
               </h3>
+              <div class="overflow-x-auto">
               <table class="table table-sm">
                 <thead>
                   <tr class="text-[11px] uppercase tracking-wider opacity-50">
@@ -104,6 +105,7 @@ Chart.register(...registerables);
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
           <div class="card bg-base-100 border border-base-300 rounded-2xl shadow-sm">
@@ -111,6 +113,7 @@ Chart.register(...registerables);
               <h3 class="font-semibold flex items-center gap-2 mb-1">
                 <span class="text-base">💸</span> Recent payments
               </h3>
+              <div class="overflow-x-auto">
               <table class="table table-sm">
                 <thead>
                   <tr class="text-[11px] uppercase tracking-wider opacity-50">
@@ -129,6 +132,7 @@ Chart.register(...registerables);
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         </div>
