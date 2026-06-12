@@ -85,6 +85,11 @@ export const routes: Routes = [
           import('./features/settings/settings.component').then((m) => m.SettingsComponent),
       },
       {
+        path: 'audit-log',
+        loadComponent: () =>
+          import('./features/audit/audit-log.component').then((m) => m.TenantAuditLogComponent),
+      },
+      {
         path: 'attendance',
         loadComponent: () =>
           import('./features/attendance/attendance.component').then((m) => m.AttendanceComponent),

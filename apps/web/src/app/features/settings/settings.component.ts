@@ -1,6 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import {
@@ -16,6 +16,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { IdleService } from '../../core/services/idle.service';
 import { StaffApiService, Staff, CreateStaffDto, UpdateStaffDto } from '../../core/services/staff.service';
+import { AuditApiService } from '../audit/audit.service';
 
 type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'staff' | 'appearance' | 'about';
 
@@ -475,8 +476,11 @@ type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'securi
               <div class="text-xs opacity-60">Full history of all admin actions</div>
             </div>
             <div class="flex gap-2">
-              <button type="button" class="btn btn-outline btn-sm" (click)="comingSoon('Audit log viewer')">View Audit Log</button>
-              <button type="button" class="btn btn-outline btn-sm" (click)="comingSoon('Audit log export')">Export Audit Log</button>
+              <button type="button" class="btn btn-outline btn-sm" (click)="viewAuditLog()">View Audit Log</button>
+              <button type="button" class="btn btn-outline btn-sm gap-2" (click)="exportAuditLog()" [disabled]="exportingAudit()">
+                <span *ngIf="exportingAudit()" class="loading loading-spinner loading-xs"></span>
+                Export Audit Log
+              </button>
             </div>
           </div>
         </div>
@@ -674,7 +678,11 @@ export class SettingsComponent implements OnInit {
   private staffApi = inject(StaffApiService);
   private branchesApi = inject(BranchesApiService);
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private auditApi = inject(AuditApiService);
   theme = inject(ThemeService);
+
+  exportingAudit = signal(false);
 
   sections: { key: Section; label: string; icon: string }[] = [
     { key: 'profile',   label: 'Profile',         icon: '👤' },
@@ -1081,6 +1089,27 @@ export class SettingsComponent implements OnInit {
         this.exporting.set(false);
       },
       error: () => { this.toast.error('Export failed'); this.exporting.set(false); },
+    });
+  }
+
+  viewAuditLog() {
+    this.router.navigate(['/audit-log']);
+  }
+
+  exportAuditLog() {
+    this.exportingAudit.set(true);
+    this.auditApi.exportCsv({}).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.exportingAudit.set(false);
+        this.toast.success('Audit log exported');
+      },
+      error: () => { this.toast.error('Export failed'); this.exportingAudit.set(false); },
     });
   }
 

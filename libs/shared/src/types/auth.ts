@@ -31,6 +31,7 @@ export interface JwtPayload {
   role: UserRole;
   tenantId: string | null;
   branchId: string | null;
+  sid?: string;      // single-session token; validated against User.sessionId when present
   iat?: number;
   exp?: number;
 }

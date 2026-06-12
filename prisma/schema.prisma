@@ -136,6 +136,11 @@ model User {
   mustChangePassword Boolean @default(false)
   passwordChangedAt  DateTime?
   lastLoginAt  DateTime?
+  // Active single-session token. Set to a fresh value on each login when the
+  // tenant disallows multiple sessions; the JWT carries a matching `sid` and
+  // any token whose sid != this value is rejected (logging out the old device).
+  // Null = no single-session enforcement (tenant allows multiple sessions).
+  sessionId    String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

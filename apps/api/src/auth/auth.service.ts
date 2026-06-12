@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcryptjs';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -40,9 +41,16 @@ export class AuthService {
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
+    // Single-session enforcement: when the tenant disallows multiple sessions,
+    // mint a fresh sessionId on every login. The JWT carries it as `sid`, and
+    // any previously-issued token (with a different sid) is rejected on its next
+    // request — logging the old device out. When multiple sessions are allowed,
+    // clear sessionId so no token is ever rejected.
+    const allowMultiple = await this.allowsMultipleSessions(tenant.id);
+    const sessionId = allowMultiple ? null : uuidv4();
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: { lastLoginAt: new Date(), sessionId },
     });
 
     const features = await this.featureFlags.listForTenant(tenant.id);
@@ -59,7 +67,27 @@ export class AuthService {
         mustChangePassword: user.mustChangePassword,
       },
       features,
+      sessionId ?? undefined,
     );
+  }
+
+  /**
+   * Reads tenant_settings.security.allowMultipleSessions. Defaults to false
+   * (single-session enforced) when no setting row exists. Read via raw SQL
+   * because settings live in a JSONB column outside the generated client.
+   */
+  private async allowsMultipleSessions(tenantId: string): Promise<boolean> {
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ v: string | null }>>`
+        SELECT data->'security'->>'allowMultipleSessions' AS v
+        FROM tenant_settings WHERE "tenantId" = ${tenantId} LIMIT 1
+      `;
+      return rows[0]?.v === 'true';
+    } catch {
+      // If the settings table isn't present, fail safe to single-session off
+      // (i.e. allow multiple) so logins never break on a missing migration.
+      return true;
+    }
   }
 
   /**
@@ -191,6 +219,7 @@ export class AuthService {
   private buildAuthResponse(
     user: AuthResponse['user'],
     features: AuthResponse['features'],
+    sid?: string,
   ): AuthResponse {
     const payload: JwtPayload = {
       sub: user.id,
@@ -198,6 +227,7 @@ export class AuthService {
       role: user.role,
       tenantId: user.tenantId,
       branchId: user.branchId,
+      ...(sid ? { sid } : {}),
     };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
