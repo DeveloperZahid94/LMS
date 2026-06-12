@@ -8,7 +8,19 @@ import express, { Express } from 'express';
 import serverless from 'serverless-http';
 import { AppModule } from '../src/app.module';
 
+// Bump this to force @vercel/node to rebuild the function (busts its build cache).
+const BUILD = 'serverless-3';
+
 let cachedHandler: ReturnType<typeof serverless> | null = null;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
 
 async function buildHandler() {
   const expressApp: Express = express();
@@ -37,8 +49,20 @@ async function buildHandler() {
 }
 
 export default async function handler(req: any, res: any) {
-  if (!cachedHandler) {
-    cachedHandler = await buildHandler();
+  try {
+    if (!cachedHandler) {
+      // Cap bootstrap so a hung init returns a readable 500 instead of a silent
+      // FUNCTION_INVOCATION_TIMEOUT (504) with no logs.
+      cachedHandler = await withTimeout(buildHandler(), 22000, 'Nest bootstrap');
+    }
+    return cachedHandler(req, res);
+  } catch (err: any) {
+    cachedHandler = null; // let the next invocation retry a fresh bootstrap
+    const detail = err?.message ?? String(err);
+    // eslint-disable-next-line no-console
+    console.error('[API bootstrap/handler error]', detail, err?.stack);
+    res.statusCode = 500;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ error: 'API bootstrap failed', detail, build: BUILD }));
   }
-  return cachedHandler(req, res);
 }
