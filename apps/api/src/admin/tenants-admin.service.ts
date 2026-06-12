@@ -120,7 +120,7 @@ export class TenantsAdminService {
     return this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
         data: {
-          name: dto.name, slug: dto.slug, email: dto.email, phone: dto.phone ?? null,
+          name: dto.name, slug: dto.slug.trim().toLowerCase(), email: dto.email, phone: dto.phone ?? null,
         },
       });
       const branch = await tx.branch.create({

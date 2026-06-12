@@ -27,14 +27,18 @@ export class AuthService {
       );
     }
 
-    const tenant = await this.prisma.tenant.findUnique({ where: { slug: dto.tenantSlug } });
+    // Slug + email are matched case-insensitively so logins aren't broken by a
+    // capitalised slug or email (the values are stored as entered at creation).
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug: { equals: dto.tenantSlug.trim(), mode: 'insensitive' } },
+    });
     if (!tenant) throw new UnauthorizedException('Invalid tenant or credentials');
     if (tenant.status !== 'ACTIVE' && tenant.status !== 'TRIAL') {
       throw new UnauthorizedException('Tenant is not active');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { tenantId_email: { tenantId: tenant.id, email: dto.email } },
+    const user = await this.prisma.user.findFirst({
+      where: { tenantId: tenant.id, email: { equals: dto.email.trim(), mode: 'insensitive' } },
     });
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
 
@@ -126,7 +130,9 @@ export class AuthService {
     if (!dto.tenantSlug || !dto.code || !dto.password) {
       throw new BadRequestException('Tenant, student code and password are required');
     }
-    const tenant = await this.prisma.tenant.findUnique({ where: { slug: dto.tenantSlug } });
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug: { equals: dto.tenantSlug.trim(), mode: 'insensitive' } },
+    });
     if (!tenant) throw new UnauthorizedException('Invalid tenant or credentials');
     if (tenant.status !== 'ACTIVE' && tenant.status !== 'TRIAL') {
       throw new UnauthorizedException('Tenant is not active');
