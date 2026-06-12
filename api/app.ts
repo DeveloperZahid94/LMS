@@ -11,7 +11,7 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import express, { Express } from 'express';
 import serverless from 'serverless-http';
 
-const BUILD = 'serverless-dyn-1';
+const BUILD = 'app-fresh-1';
 
 let cachedHandler: ReturnType<typeof serverless> | null = null;
 
