@@ -12,6 +12,7 @@ import {
   TenantDetail,
   TenantStatus,
   TenantSummary,
+  TenantUser,
 } from '@lms/shared';
 
 export interface CreateTenantPayload {
@@ -29,6 +30,13 @@ export interface UpdateTenantPayload {
   slug?: string;
   email?: string;
   phone?: string;
+}
+
+export interface UpdateTenantUserPayload {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  role?: 'CLIENT_ADMIN' | 'BRANCH_ADMIN' | 'STAFF';
 }
 
 export interface EmailConfig {
@@ -83,6 +91,9 @@ export class AdminApiService {
   fullBackupSqlUrl(): string { return `${this.base}/backup/sql`; }
   setTenantStatus(id: string, status: TenantStatus) {
     return this.http.put<TenantSummary>(`${this.base}/tenants/${id}/status`, { status });
+  }
+  updateTenantUser(tenantId: string, userId: string, dto: UpdateTenantUserPayload) {
+    return this.http.put<TenantUser>(`${this.base}/tenants/${tenantId}/users/${userId}`, dto);
   }
   resetUserPassword(tenantId: string, userId: string, newPassword?: string) {
     return this.http.post<ResetPasswordResult>(

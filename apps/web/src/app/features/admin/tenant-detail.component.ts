@@ -88,6 +88,7 @@ type Tab = 'overview' | 'users' | 'features' | 'email';
                   </span>
                 </td>
                 <td class="text-right whitespace-nowrap">
+                  <button class="btn btn-ghost btn-xs" (click)="openUserEdit(u)">Edit</button>
                   <button class="btn btn-ghost btn-xs" (click)="resetPassword(u)">Reset password</button>
                   <button class="btn btn-ghost btn-xs" (click)="toggleActive(u)">
                     {{ u.isActive ? 'Disable' : 'Enable' }}
@@ -262,6 +263,43 @@ type Tab = 'overview' | 'users' | 'features' | 'email';
       </div>
       <form method="dialog" class="modal-backdrop"><button (click)="editOpen.set(false)">close</button></form>
     </dialog>
+
+    <!-- Edit user modal -->
+    <dialog class="modal" [class.modal-open]="userEditOpen()">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">Edit user</h3>
+        <div class="space-y-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Full name</span></div>
+            <input class="input input-bordered" [(ngModel)]="uName" placeholder="Full name" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Login email</span></div>
+            <input class="input input-bordered" type="email" [(ngModel)]="uEmail" placeholder="user@example.com" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Phone</span></div>
+            <input class="input input-bordered" [(ngModel)]="uPhone" placeholder="+91xxxxxxxxxx" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Role</span></div>
+            <select class="select select-bordered" [(ngModel)]="uRole">
+              <option value="CLIENT_ADMIN">Client Admin</option>
+              <option value="BRANCH_ADMIN">Branch Admin</option>
+              <option value="STAFF">Staff</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="userEditOpen.set(false)" [disabled]="userSaving()">Cancel</button>
+          <button class="btn btn-primary gap-2" (click)="saveUserEdit()" [disabled]="userSaving() || !uName.trim() || !uEmail.trim()">
+            <span *ngIf="userSaving()" class="loading loading-spinner loading-sm"></span>
+            Save user
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button (click)="userEditOpen.set(false)">close</button></form>
+    </dialog>
   `,
 })
 export class TenantDetailComponent implements OnInit {
@@ -283,6 +321,15 @@ export class TenantDetailComponent implements OnInit {
   editEmail = '';
   editPhone = '';
   editStatus: 'ACTIVE' | 'TRIAL' | 'SUSPENDED' | 'CANCELLED' = 'ACTIVE';
+
+  // Edit user
+  userEditOpen = signal(false);
+  userSaving = signal(false);
+  private editingUserId = '';
+  uName = '';
+  uEmail = '';
+  uPhone = '';
+  uRole: 'CLIENT_ADMIN' | 'BRANCH_ADMIN' | 'STAFF' = 'STAFF';
 
   // Email config
   emailCfg = signal<EmailConfig | null>(null);
@@ -350,6 +397,36 @@ export class TenantDetailComponent implements OnInit {
       error: (err) => {
         this.toast.error(err.error?.message ?? 'Could not update tenant');
         this.editSaving.set(false);
+      },
+    });
+  }
+
+  openUserEdit(u: TenantUser) {
+    this.editingUserId = u.id;
+    this.uName = u.fullName;
+    this.uEmail = u.email;
+    this.uPhone = (u as { phone?: string }).phone ?? '';
+    this.uRole = (u.role as 'CLIENT_ADMIN' | 'BRANCH_ADMIN' | 'STAFF') ?? 'STAFF';
+    this.userEditOpen.set(true);
+  }
+
+  saveUserEdit() {
+    this.userSaving.set(true);
+    this.api.updateTenantUser(this.id, this.editingUserId, {
+      fullName: this.uName.trim(),
+      email: this.uEmail.trim(),
+      phone: this.uPhone.trim(),
+      role: this.uRole,
+    }).subscribe({
+      next: () => {
+        this.userSaving.set(false);
+        this.userEditOpen.set(false);
+        this.toast.success('User updated');
+        this.reload();
+      },
+      error: (err) => {
+        this.toast.error(err.error?.message ?? 'Could not update user');
+        this.userSaving.set(false);
       },
     });
   }

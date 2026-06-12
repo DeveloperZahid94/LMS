@@ -14,6 +14,7 @@ export interface AuthUser {
   role: UserRole;
   tenantId: string | null;
   tenantSlug: string | null;
+  tenantName: string | null;
   branchId: string | null;
   mustChangePassword?: boolean;
 }

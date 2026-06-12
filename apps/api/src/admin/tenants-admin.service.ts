@@ -45,6 +45,13 @@ export class SetUserActiveDto {
   @IsBoolean() isActive!: boolean;
 }
 
+export class UpdateTenantUserDto {
+  @IsOptional() @IsString() fullName?: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsIn(['CLIENT_ADMIN', 'BRANCH_ADMIN', 'STAFF']) role?: string;
+}
+
 /** Readable temp password, e.g. "Lms-7K4P-92" — easy to share over WhatsApp/call. */
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -214,7 +221,7 @@ export class TenantsAdminService {
         users: {
           orderBy: { createdAt: 'asc' },
           select: {
-            id: true, email: true, fullName: true, role: true, isActive: true,
+            id: true, email: true, fullName: true, phone: true, role: true, isActive: true,
             mustChangePassword: true, lastLoginAt: true, passwordChangedAt: true,
           },
         },
@@ -236,6 +243,32 @@ export class TenantsAdminService {
       data: { passwordHash, mustChangePassword: true, passwordChangedAt: new Date() },
     });
     return { userId, tempPassword };
+  }
+
+  /** Super-admin edit of a tenant user's profile (name/email/phone/role). */
+  async updateUser(tenantId: string, userId: string, dto: UpdateTenantUserDto) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, tenantId } });
+    if (!user) throw new NotFoundException('User not found in this tenant');
+
+    const data: { fullName?: string; email?: string; phone?: string | null; role?: any } = {};
+    if (dto.fullName !== undefined) data.fullName = dto.fullName.trim();
+    if (dto.phone !== undefined) data.phone = dto.phone.trim() || null;
+    if (dto.role !== undefined) data.role = dto.role;
+    if (dto.email !== undefined && dto.email.trim() !== user.email) {
+      const email = dto.email.trim();
+      const clash = await this.prisma.user.findFirst({ where: { tenantId, email, NOT: { id: userId } } });
+      if (clash) throw new BadRequestException('Another user in this tenant already uses that email.');
+      data.email = email;
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true, email: true, fullName: true, phone: true, role: true, isActive: true,
+        mustChangePassword: true, lastLoginAt: true, passwordChangedAt: true,
+      },
+    });
   }
 
   async setUserActive(tenantId: string, userId: string, isActive: boolean) {

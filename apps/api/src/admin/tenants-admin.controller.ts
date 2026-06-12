@@ -8,6 +8,7 @@ import {
   SetUserActiveDto,
   TestEmailDto,
   UpdateTenantDto,
+  UpdateTenantUserDto,
   TenantsAdminService,
 } from './tenants-admin.service';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -48,6 +49,15 @@ export class TenantsAdminController {
   @Put(':id/status')
   setStatus(@Param('id') id: string, @Body() dto: SetStatusDto) {
     return this.service.setStatus(id, dto.status);
+  }
+
+  @Put(':id/users/:userId')
+  updateUser(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() dto: UpdateTenantUserDto,
+  ) {
+    return this.service.updateUser(id, userId, dto);
   }
 
   @Post(':id/users/:userId/reset-password')

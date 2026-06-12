@@ -130,7 +130,7 @@ interface NavItem {
                  [class.opacity-0]="collapsed()"
                  [class.pointer-events-none]="collapsed()"
                  [class.w-0]="collapsed()">
-              <div class="font-semibold whitespace-nowrap text-sm">LMS Platform</div>
+              <div class="font-semibold whitespace-nowrap truncate text-sm">{{ auth.user()?.tenantName || 'LMS Platform' }}</div>
               <div class="text-[10px] opacity-60 whitespace-nowrap truncate uppercase tracking-wider">{{ auth.user()?.tenantSlug || 'platform' }}</div>
             </div>
           </div>
@@ -159,11 +159,11 @@ interface NavItem {
                *ngIf="auth.user() as u">
             <div class="flex items-center gap-2 text-xs">
               <div class="w-8 h-8 rounded-full bg-base-200 grid place-items-center font-semibold shrink-0">
-                {{ initials(u.fullName) }}
+                {{ initials(u.tenantName || u.fullName) }}
               </div>
               <div class="min-w-0 flex-1">
-                <div class="font-medium truncate">{{ u.fullName }}</div>
-                <div class="opacity-60 truncate text-[10px] uppercase tracking-wider">{{ u.role }}</div>
+                <div class="font-medium truncate">{{ u.tenantName || u.fullName }}</div>
+                <div class="opacity-60 truncate text-[10px] uppercase tracking-wider">{{ u.fullName }} · {{ u.role }}</div>
               </div>
               <button class="btn btn-ghost btn-xs btn-square" (click)="auth.logout()" title="Sign out">⤴</button>
             </div>

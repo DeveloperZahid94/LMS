@@ -19,6 +19,7 @@ export interface TenantUser {
   id: string;
   email: string;
   fullName: string;
+  phone?: string | null;
   role: UserRole;
   isActive: boolean;
   mustChangePassword: boolean;
