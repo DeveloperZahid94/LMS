@@ -276,17 +276,27 @@ type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'securi
                 </div>
                 <div *ngIf="!lastBackupAt()" class="text-xs opacity-60 mt-1">No backup created yet from this device.</div>
               </div>
-              <button class="btn btn-primary btn-sm self-start" (click)="backupNow()" [disabled]="backupBusy()">
-                <span *ngIf="backupBusy()" class="loading loading-spinner loading-sm"></span>
-                Backup Now
-              </button>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm self-start" (click)="backupSqlNow()" [disabled]="backupSqlBusy()">
+                  <span *ngIf="backupSqlBusy()" class="loading loading-spinner loading-sm"></span>
+                  Download backup (.sql)
+                </button>
+                <button class="btn btn-outline btn-sm self-start" (click)="backupNow()" [disabled]="backupBusy()">
+                  <span *ngIf="backupBusy()" class="loading loading-spinner loading-sm"></span>
+                  JSON snapshot
+                </button>
+              </div>
+              <div class="text-xs opacity-60">
+                The <strong>.sql</strong> file is a restorable dump of your organisation's data. Restore it into a database with the LMS schema:
+                <code class="bg-base-100 px-1 rounded">psql "&lt;db-url&gt;" -f backup.sql</code>
+              </div>
             </div>
 
             <form [formGroup]="backupForm" (ngSubmit)="saveSection('backup')" class="space-y-3">
               <label class="flex items-center justify-between p-3 rounded-lg bg-base-200">
                 <div>
                   <div class="font-medium">Auto backup</div>
-                  <div class="text-xs opacity-60">Periodic snapshot (requires Support to enable)</div>
+                  <div class="text-xs opacity-60">Emails a restorable .sql backup to your org address (needs email integration enabled)</div>
                 </div>
                 <input type="checkbox" class="toggle toggle-primary" formControlName="autoEnabled" />
               </label>
@@ -711,6 +721,7 @@ export class SettingsComponent implements OnInit {
   savingSection = signal(false);
   bioTesting = signal(false);
   backupBusy = signal(false);
+  backupSqlBusy = signal(false);
   exporting = signal(false);
 
   showApiKey = signal(false);
@@ -1023,6 +1034,27 @@ export class SettingsComponent implements OnInit {
         this.bioTesting.set(false);
       },
     });
+  }
+
+  backupSqlNow() {
+    this.backupSqlBusy.set(true);
+    fetch(this.api.backupSqlUrl(), { headers: { Authorization: 'Bearer ' + (this.auth.accessToken ?? '') } })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = `lms-backup-${new Date().toISOString().slice(0, 10)}.sql`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(dlUrl);
+        const now = new Date();
+        this.lastBackupAt.set(now);
+        localStorage.setItem('lms.lastBackupAt', now.toISOString());
+        this.toast.success('SQL backup downloaded');
+      })
+      .catch((e) => this.toast.error('Backup failed: ' + (e?.message ?? '')))
+      .finally(() => this.backupSqlBusy.set(false));
   }
 
   backupNow() {

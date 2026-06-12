@@ -24,6 +24,13 @@ export interface CreateTenantPayload {
   adminPassword: string;
 }
 
+export interface UpdateTenantPayload {
+  name?: string;
+  slug?: string;
+  email?: string;
+  phone?: string;
+}
+
 export interface EmailConfig {
   provider: 'NONE' | 'BREVO' | 'SENDGRID';
   fromEmail: string;
@@ -69,6 +76,11 @@ export class AdminApiService {
   createTenant(dto: CreateTenantPayload) {
     return this.http.post<TenantSummary>(`${this.base}/tenants`, dto);
   }
+  updateTenant(id: string, dto: UpdateTenantPayload) {
+    return this.http.put<TenantSummary>(`${this.base}/tenants/${id}`, dto);
+  }
+  /** URL for the SuperAdmin full-database .sql backup (downloaded via fetch + bearer token). */
+  fullBackupSqlUrl(): string { return `${this.base}/backup/sql`; }
   setTenantStatus(id: string, status: TenantStatus) {
     return this.http.put<TenantSummary>(`${this.base}/tenants/${id}/status`, { status });
   }

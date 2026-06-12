@@ -304,6 +304,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   private settingsApi = inject(SettingsApiService);
   collapsed = signal(this.readCollapsed());
   alertCount = signal(0);
+  private alertsTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Fallback when the tenant setting can't be loaded (mirrors the settings default). */
   private static readonly DEFAULT_AUTO_LOGOUT_MIN = 30;
@@ -311,7 +312,9 @@ export class ShellComponent implements OnInit, OnDestroy {
   ngOnInit() {
     this.refreshAlerts();
     // Refresh the bell count every 60s so it stays roughly fresh while staff browse.
-    setInterval(() => this.refreshAlerts(), 60_000);
+    // Keep the handle so we can stop it on destroy — otherwise the poll leaks past
+    // logout and a stale-token 401 bounces the user back to the admin login.
+    this.alertsTimer = setInterval(() => this.refreshAlerts(), 60_000);
 
     // Arm inactivity auto-logout with the tenant's configured limit. Start
     // immediately on a sensible default so we're never unprotected, then adjust
@@ -325,6 +328,7 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.idle.stop();
+    if (this.alertsTimer) { clearInterval(this.alertsTimer); this.alertsTimer = null; }
   }
 
   toggleCollapsed() {

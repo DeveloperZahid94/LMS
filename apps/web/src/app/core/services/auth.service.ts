@@ -45,13 +45,29 @@ export class AuthService {
   }
 
   logout() {
+    this.clearSession();
+    this.router.navigate(['/login']);
+  }
+
+  /**
+   * Session ended server-side (expired/invalidated token → 401). Clear local
+   * state and send the user to the login that matches who they were, so a
+   * student isn't dumped on the staff login (and vice-versa).
+   */
+  sessionExpired() {
+    const role = this.user()?.role;
+    this.clearSession();
+    const target = role === 'STUDENT' ? '/student-login' : role === 'SUPER_ADMIN' ? '/superadmin' : '/login';
+    this.router.navigate([target]);
+  }
+
+  private clearSession() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(FLAGS_KEY);
     this.user.set(null);
     this.features.set([]);
-    this.router.navigate(['/login']);
   }
 
   get accessToken(): string | null {

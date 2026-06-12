@@ -2,6 +2,7 @@ import { Controller, ForbiddenException, Get, Headers } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { DueAlertsJob } from './due-alerts.job';
 import { DueRemindersJob } from './due-reminders.job';
+import { AutoBackupJob } from './auto-backup.job';
 import { Public } from '../auth/decorators/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -17,6 +18,7 @@ export class CronController {
   constructor(
     private dueAlerts: DueAlertsJob,
     private dueReminders: DueRemindersJob,
+    private autoBackup: AutoBackupJob,
     private prisma: PrismaService,
   ) {}
 
@@ -69,6 +71,13 @@ export class CronController {
     this.assertCron(auth);
     // Placeholder: close out yesterday's still-open attendance, etc.
     return { ok: true };
+  }
+
+  /** Daily: email a restorable .sql backup to every tenant that enabled auto-backup. */
+  @Get('auto-backup')
+  async runAutoBackup(@Headers('authorization') auth?: string) {
+    this.assertCron(auth);
+    return this.autoBackup.run();
   }
 
   private assertCron(auth?: string) {

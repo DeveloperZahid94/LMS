@@ -19,6 +19,7 @@
   "crons": [
     { "path": "/api/cron/due-alerts", "schedule": "0 9 * * *" },
     { "path": "/api/cron/due-reminders", "schedule": "30 9 * * *" },
-    { "path": "/api/cron/attendance-rollover", "schedule": "5 0 * * *" }
+    { "path": "/api/cron/attendance-rollover", "schedule": "5 0 * * *" },
+    { "path": "/api/cron/auto-backup", "schedule": "0 1 * * *" }
   ]
 }

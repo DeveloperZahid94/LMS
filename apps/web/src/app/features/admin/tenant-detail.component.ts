@@ -29,8 +29,12 @@ type Tab = 'overview' | 'users' | 'features' | 'email';
               [class.badge-warning]="t.status === 'TRIAL' || t.status === 'SUSPENDED'"
               [class.badge-error]="t.status === 'CANCELLED'">{{ t.status }}</span>
           </h1>
-          <p class="text-sm opacity-60 mt-1 font-mono">{{ t.slug }} · {{ t.email }}</p>
+          <p class="text-sm opacity-60 mt-1 font-mono">{{ t.slug }} · {{ t.email }}<span *ngIf="t.phone"> · {{ t.phone }}</span></p>
         </div>
+        <button class="btn btn-outline btn-sm gap-2" (click)="openEdit()">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+          Edit tenant
+        </button>
       </div>
 
       <div role="tablist" class="tabs tabs-bordered mb-4">
@@ -213,6 +217,50 @@ type Tab = 'overview' | 'users' | 'features' | 'email';
         </div>
       </div>
     </dialog>
+
+    <!-- Edit tenant modal -->
+    <dialog class="modal" [class.modal-open]="editOpen()">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg mb-1">Edit tenant</h3>
+        <p class="text-xs opacity-60 mb-4">Update the organisation's profile. Changing the slug also changes the login identifier its staff use.</p>
+        <div class="space-y-3">
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Name</span></div>
+            <input class="input input-bordered" [(ngModel)]="editName" placeholder="Organisation name" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Slug (login identifier)</span></div>
+            <input class="input input-bordered font-mono" [(ngModel)]="editSlug" placeholder="demo-library" autocapitalize="off" spellcheck="false" />
+            <div class="label py-1"><span class="label-text-alt opacity-50">lowercase letters, numbers and hyphens only</span></div>
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Email</span></div>
+            <input class="input input-bordered" type="email" [(ngModel)]="editEmail" placeholder="owner@example.com" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Phone</span></div>
+            <input class="input input-bordered" [(ngModel)]="editPhone" placeholder="+91xxxxxxxxxx" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text uppercase text-[11px] tracking-wider opacity-60">Status</span></div>
+            <select class="select select-bordered" [(ngModel)]="editStatus">
+              <option value="ACTIVE">Active</option>
+              <option value="TRIAL">Trial</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-ghost" (click)="editOpen.set(false)" [disabled]="editSaving()">Cancel</button>
+          <button class="btn btn-primary gap-2" (click)="saveEdit()" [disabled]="editSaving() || !editName.trim() || !editSlug.trim()">
+            <span *ngIf="editSaving()" class="loading loading-spinner loading-sm"></span>
+            Save changes
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button (click)="editOpen.set(false)">close</button></form>
+    </dialog>
   `,
 })
 export class TenantDetailComponent implements OnInit {
@@ -225,6 +273,15 @@ export class TenantDetailComponent implements OnInit {
   tab = signal<Tab>('overview');
   resetResult = signal<{ userId: string; tempPassword: string } | null>(null);
   labels = FEATURE_LABELS;
+
+  // Edit tenant
+  editOpen = signal(false);
+  editSaving = signal(false);
+  editName = '';
+  editSlug = '';
+  editEmail = '';
+  editPhone = '';
+  editStatus: 'ACTIVE' | 'TRIAL' | 'SUSPENDED' | 'CANCELLED' = 'ACTIVE';
 
   // Email config
   emailCfg = signal<EmailConfig | null>(null);
@@ -250,6 +307,49 @@ export class TenantDetailComponent implements OnInit {
     this.api.tenantDetail(this.id).subscribe({
       next: (t) => { this.tenant.set(t); this.loading.set(false); },
       error: () => { this.toast.error('Could not load tenant'); this.loading.set(false); },
+    });
+  }
+
+  openEdit() {
+    const t = this.tenant();
+    if (!t) return;
+    this.editName = t.name;
+    this.editSlug = t.slug;
+    this.editEmail = t.email;
+    this.editPhone = t.phone ?? '';
+    this.editStatus = t.status;
+    this.editOpen.set(true);
+  }
+
+  saveEdit() {
+    const t = this.tenant();
+    if (!t) return;
+    this.editSaving.set(true);
+    // Persist profile + status. Status uses its own endpoint; fire it only when changed.
+    const profile$ = this.api.updateTenant(this.id, {
+      name: this.editName.trim(),
+      slug: this.editSlug.trim().toLowerCase(),
+      email: this.editEmail.trim(),
+      phone: this.editPhone.trim(),
+    });
+    profile$.subscribe({
+      next: () => {
+        const finish = () => {
+          this.editSaving.set(false);
+          this.editOpen.set(false);
+          this.toast.success('Tenant updated');
+          this.reload();
+        };
+        if (this.editStatus !== t.status) {
+          this.api.setTenantStatus(this.id, this.editStatus).subscribe({ next: finish, error: finish });
+        } else {
+          finish();
+        }
+      },
+      error: (err) => {
+        this.toast.error(err.error?.message ?? 'Could not update tenant');
+        this.editSaving.set(false);
+      },
     });
   }
 

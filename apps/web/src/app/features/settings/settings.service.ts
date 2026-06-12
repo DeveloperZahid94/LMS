@@ -75,6 +75,7 @@ export class SettingsApiService {
   }
 
   backupUrl(): string { return `${this.base}/backup`; }
+  backupSqlUrl(): string { return `${this.base}/backup.sql`; }
 
   // Auth / profile
   getProfile() { return this.http.get<ProfileResponse>(`${this.auth}/profile`); }

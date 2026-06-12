@@ -6,6 +6,7 @@ import { forkJoin, Observable, of } from 'rxjs';
 import { FEATURE_LABELS, FeatureKey, TenantStatus, TenantSummary } from '@lms/shared';
 import { AdminApiService, CreateTenantPayload } from './admin.service';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
 
 const STATUSES: TenantStatus[] = ['ACTIVE', 'TRIAL', 'SUSPENDED', 'CANCELLED'];
 const FEATURE_KEYS = Object.values(FeatureKey);
@@ -21,7 +22,13 @@ const FEATURE_KEYS = Object.values(FeatureKey);
         <h1 class="text-2xl font-bold">Tenants</h1>
         <p class="text-sm opacity-60 mt-1">Onboard and manage customer accounts</p>
       </div>
-      <button class="btn btn-primary btn-sm" (click)="openCreate()">+ New tenant</button>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-outline btn-sm gap-2" (click)="backupFullDb()" [disabled]="backupBusy()" title="Download a restorable .sql dump of the entire database">
+          <span *ngIf="backupBusy()" class="loading loading-spinner loading-xs"></span>
+          ⤓ Full DB backup (.sql)
+        </button>
+        <button class="btn btn-primary btn-sm" (click)="openCreate()">+ New tenant</button>
+      </div>
     </div>
 
     <!-- Filter bar -->
@@ -196,7 +203,9 @@ export class TenantsListComponent implements OnInit {
   private api = inject(AdminApiService);
   private toast = inject(ToastService);
   private fb = inject(FormBuilder);
+  private auth = inject(AuthService);
 
+  backupBusy = signal(false);
   tenants = signal<TenantSummary[]>([]);
   loading = signal(false);
   saving = signal(false);
@@ -252,6 +261,25 @@ export class TenantsListComponent implements OnInit {
     this.step.set(1);
     this.featuresOn.set(this.allFeaturesOn());
     this.createOpen.set(true);
+  }
+
+  /** Download a restorable .sql dump of the ENTIRE database (SuperAdmin only). */
+  backupFullDb() {
+    this.backupBusy.set(true);
+    fetch(this.api.fullBackupSqlUrl(), { headers: { Authorization: 'Bearer ' + (this.auth.accessToken ?? '') } })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = `lms-full-backup-${new Date().toISOString().slice(0, 10)}.sql`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(dlUrl);
+        this.toast.success('Full database backup downloaded');
+      })
+      .catch((e) => this.toast.error('Backup failed: ' + (e?.message ?? '')))
+      .finally(() => this.backupBusy.set(false));
   }
 
   toggleFeatureChoice(key: FeatureKey) {

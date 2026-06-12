@@ -30,6 +30,13 @@ export class CreateTenantDto {
   @IsString() adminPassword!: string;
 }
 
+export class UpdateTenantDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() slug?: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsString() phone?: string;
+}
+
 export class ResetPasswordDto {
   @IsOptional() @IsString() @MinLength(8) newPassword?: string;
 }
@@ -146,6 +153,34 @@ export class TenantsAdminService {
 
   setStatus(tenantId: string, status: 'ACTIVE' | 'SUSPENDED' | 'TRIAL' | 'CANCELLED') {
     return this.prisma.tenant.update({ where: { id: tenantId }, data: { status } });
+  }
+
+  /** Edit a tenant's core profile (name/email/phone/slug). Slug is the login
+   *  identifier, so changing it is allowed but enforced unique. */
+  async update(tenantId: string, dto: UpdateTenantDto) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    const data: { name?: string; email?: string; phone?: string | null; slug?: string } = {};
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.email !== undefined) data.email = dto.email.trim();
+    if (dto.phone !== undefined) data.phone = dto.phone.trim() || null;
+
+    if (dto.slug !== undefined && dto.slug.trim() !== tenant.slug) {
+      const slug = dto.slug.trim().toLowerCase();
+      if (!/^[a-z0-9-]+$/.test(slug)) {
+        throw new BadRequestException('Slug may only contain lowercase letters, numbers and hyphens.');
+      }
+      const clash = await this.prisma.tenant.findUnique({ where: { slug } });
+      if (clash && clash.id !== tenantId) throw new BadRequestException('That slug is already taken.');
+      data.slug = slug;
+    }
+
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data,
+      include: { _count: { select: { branches: true, users: true, students: true } } },
+    });
   }
 
   async detail(tenantId: string) {

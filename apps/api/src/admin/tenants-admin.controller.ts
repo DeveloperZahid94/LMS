@@ -7,6 +7,7 @@ import {
   ResetPasswordDto,
   SetUserActiveDto,
   TestEmailDto,
+  UpdateTenantDto,
   TenantsAdminService,
 } from './tenants-admin.service';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -37,6 +38,11 @@ export class TenantsAdminController {
   @Post()
   create(@Body() dto: CreateTenantDto) {
     return this.service.create(dto);
+  }
+
+  @Put(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateTenantDto) {
+    return this.service.update(id, dto);
   }
 
   @Put(':id/status')

@@ -26,6 +26,7 @@ import { SettingsModule } from './settings/settings.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AuditModule } from './audit/audit.module';
 import { EmailModule } from './email/email.module';
+import { BackupModule } from './backup/backup.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -42,6 +43,7 @@ import { AuditInterceptor } from './audit/audit.interceptor';
     AuditModule,
     IntegrationsModule,
     EmailModule,
+    BackupModule,
     StudentsModule,
     ExamTargetsModule,
     SeatsModule,
