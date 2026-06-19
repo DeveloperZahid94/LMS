@@ -8,6 +8,7 @@ import { TenantModule } from './tenant/tenant.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { StudentsModule } from './students/students.module';
 import { ExamTargetsModule } from './exam-targets/exam-targets.module';
+import { VendorsModule } from './vendors/vendors.module';
 import { SeatsModule } from './seats/seats.module';
 import { SeatAssignmentsModule } from './seat-assignments/seat-assignments.module';
 import { AttendanceModule } from './attendance/attendance.module';
@@ -46,6 +47,7 @@ import { AuditInterceptor } from './audit/audit.interceptor';
     BackupModule,
     StudentsModule,
     ExamTargetsModule,
+    VendorsModule,
     SeatsModule,
     SeatAssignmentsModule,
     AttendanceModule,

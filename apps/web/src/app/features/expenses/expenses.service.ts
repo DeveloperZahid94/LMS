@@ -26,12 +26,14 @@ export interface Expense {
   expenseDate: string;
   paymentMethod: string | null;
   vendor: string | null;
+  vendorId: string | null;
   staffId: string | null;
   staff: { id: string; fullName: string; role: string } | null;
   notes: string | null;
   branch: { id: string; name: string; code: string } | null;
   paymentStatus: ExpensePaymentStatus;
   paidAmount: number;
+  advanceApplied: number;
   outstanding: number;
   dueDate: string | null;
   paidDate: string | null;
@@ -59,6 +61,7 @@ export interface CreateExpenseDto {
   branchId?: string;
   paymentMethod?: string;
   vendor?: string;
+  vendorId?: string;
   staffId?: string;
   notes?: string;
   onCredit?: boolean;

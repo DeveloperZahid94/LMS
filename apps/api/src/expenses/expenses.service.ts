@@ -55,7 +55,7 @@ export class ExpensesService {
 
     const rows = await this.prisma.expense.findMany({
       where,
-      select: { amount: true, paidAmount: true, paymentStatus: true, category: true, expenseDate: true },
+      select: { amount: true, paidAmount: true, advanceApplied: true, paymentStatus: true, category: true, expenseDate: true },
     });
 
     // Start of the current month, used to split "this month" from all-time.
@@ -78,7 +78,7 @@ export class ExpensesService {
         thisMonthCount++;
       }
       if (r.paymentStatus !== 'PAID') {
-        outstandingAmount += amt - Number(r.paidAmount ?? 0);
+        outstandingAmount += amt - Number(r.paidAmount ?? 0) - Number((r as any).advanceApplied ?? 0);
         outstandingCount++;
       }
     }
@@ -122,9 +122,21 @@ export class ExpensesService {
     }
     if (dto.staffId) await this.assertStaff(tenantId, dto.staffId);
 
-    // Credit (pay-later): paidAmount may be 0..amount; otherwise the expense is paid in full.
-    const paidAmount = dto.onCredit ? Math.min(dto.paidAmount ?? 0, dto.amount) : dto.amount;
-    const paymentStatus = deriveStatus(dto.amount, paidAmount);
+    // Vendor advance: draw the vendor's prepaid wallet down against this expense first.
+    let advanceApplied = 0;
+    if (dto.vendorId) {
+      const vendor = await this.prisma.vendor.findFirst({ where: { id: dto.vendorId, tenantId } });
+      if (!vendor) throw new BadRequestException('Vendor not found in this tenant');
+      advanceApplied = Math.min(Number(vendor.advanceBalance ?? 0), dto.amount);
+    }
+
+    // Credit (pay-later): cash paidAmount covers the part not met by advance; otherwise the
+    // remaining (after advance) is paid in full now. Settled = advanceApplied + cash paid.
+    const remainingAfterAdvance = dto.amount - advanceApplied;
+    const paidAmount = dto.onCredit
+      ? Math.min(dto.paidAmount ?? 0, remainingAfterAdvance)
+      : remainingAfterAdvance;
+    const paymentStatus = deriveStatus(dto.amount, paidAmount + advanceApplied);
 
     const expenseDate = dto.expenseDate ? new Date(dto.expenseDate) : new Date();
     const created = await this.prisma.expense.create({
@@ -137,10 +149,12 @@ export class ExpensesService {
         expenseDate,
         paymentMethod: dto.paymentMethod ?? null,
         vendor: dto.vendor?.trim() || null,
+        vendorId: dto.vendorId ?? null,
         staffId: dto.staffId ?? null,
         notes: dto.notes ?? null,
         paymentStatus: paymentStatus as any,
         paidAmount,
+        advanceApplied,
         dueDate: dto.onCredit && dto.dueDate ? new Date(dto.dueDate) : null,
         paidDate: paymentStatus === 'PAID' ? new Date() : null,
         // Seed the ledger with the up-front amount paid on a credit expense, so its
@@ -163,9 +177,18 @@ export class ExpensesService {
         payments: { orderBy: { paidDate: 'asc' } },
       },
     });
+
+    // Draw the applied amount out of the vendor's advance wallet.
+    if (dto.vendorId && advanceApplied > 0) {
+      await this.prisma.vendor.update({
+        where: { id: dto.vendorId },
+        data: { advanceBalance: { decrement: advanceApplied } },
+      });
+    }
+
     await this.audit.record({
       tenantId, userId: this.tenantCtx.userId,
-      action: 'EXPENSE_CREATE', entity: 'expenses', entityId: created.id, diff: { after: created },
+      action: 'EXPENSE_CREATE', entity: 'expenses', entityId: created.id, diff: { after: created, advanceApplied },
     });
     return this.shape(created);
   }
@@ -212,6 +235,7 @@ export class ExpensesService {
         ...(dto.branchId !== undefined && { branchId: dto.branchId || null }),
         ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod || null }),
         ...(dto.vendor !== undefined && { vendor: dto.vendor?.trim() || null }),
+        ...(dto.vendorId !== undefined && { vendorId: dto.vendorId || null }),
         ...(dto.staffId !== undefined && { staffId: dto.staffId || null }),
         ...(dto.notes !== undefined && { notes: dto.notes || null }),
         ...creditData,
@@ -236,14 +260,15 @@ export class ExpensesService {
     if (!existing) throw new NotFoundException('Expense not found');
 
     const amount = Number(existing.amount);
-    const outstanding = amount - Number(existing.paidAmount);
+    const advanceApplied = Number((existing as any).advanceApplied ?? 0);
+    const outstanding = amount - Number(existing.paidAmount) - advanceApplied;
     if (outstanding <= 0) throw new BadRequestException('This expense is already paid in full');
     if (dto.amount > outstanding + 0.001) {
       throw new BadRequestException(`Payment exceeds the outstanding balance of ${outstanding.toFixed(2)}`);
     }
 
-    const paid = Math.min(Number(existing.paidAmount) + dto.amount, amount);
-    const status = deriveStatus(amount, paid);
+    const paid = Math.min(Number(existing.paidAmount) + dto.amount, amount - advanceApplied);
+    const status = deriveStatus(amount, paid + advanceApplied);
     const paidDate = dto.paidDate ? new Date(dto.paidDate) : new Date();
 
     // Record the payment in the ledger and roll the running total forward together.
@@ -285,7 +310,16 @@ export class ExpensesService {
     const tenantId = this.tenantCtx.tenantId;
     const existing = await this.prisma.expense.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException('Expense not found');
+
+    const advanceApplied = Number((existing as any).advanceApplied ?? 0);
     await this.prisma.expense.delete({ where: { id } });
+    // Refund any advance this expense had consumed back to the vendor's wallet.
+    if (existing.vendorId && advanceApplied > 0) {
+      await this.prisma.vendor.update({
+        where: { id: existing.vendorId },
+        data: { advanceBalance: { increment: advanceApplied } },
+      }).catch(() => { /* vendor may have been removed; ignore */ });
+    }
     await this.audit.record({
       tenantId, userId: this.tenantCtx.userId,
       action: 'EXPENSE_DELETE', entity: 'expenses', entityId: id, diff: { before: existing },
@@ -310,13 +344,19 @@ export class ExpensesService {
       expenseDate: r.expenseDate,
       paymentMethod: r.paymentMethod ?? null,
       vendor: r.vendor ?? null,
+      vendorId: r.vendorId ?? null,
       staffId: r.staffId ?? null,
       staff: r.staff ?? null,
       notes: r.notes ?? null,
       branch: r.branch ?? null,
       paymentStatus: r.paymentStatus ?? 'PAID',
       paidAmount: r.paidAmount != null ? Number(r.paidAmount) : 0,
-      outstanding: Number(((r.amount != null ? Number(r.amount) : 0) - (r.paidAmount != null ? Number(r.paidAmount) : 0)).toFixed(2)),
+      advanceApplied: r.advanceApplied != null ? Number(r.advanceApplied) : 0,
+      outstanding: Number((
+        (r.amount != null ? Number(r.amount) : 0)
+        - (r.paidAmount != null ? Number(r.paidAmount) : 0)
+        - (r.advanceApplied != null ? Number(r.advanceApplied) : 0)
+      ).toFixed(2)),
       dueDate: r.dueDate ?? null,
       paidDate: r.paidDate ?? null,
       payments: Array.isArray(r.payments)

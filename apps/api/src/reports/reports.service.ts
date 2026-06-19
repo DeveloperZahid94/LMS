@@ -386,12 +386,13 @@ export class ReportsService {
    * (amount) vs what's actually been paid (paidAmount) and the outstanding balance,
    * plus the date, branch and the staff member it's tagged to. Newest first.
    */
-  async expenseDetail(opts: { dateFrom: string; dateTo: string; branchId?: string }) {
+  async expenseDetail(opts: { dateFrom: string; dateTo: string; branchId?: string; vendor?: string }) {
     const tenantId = this.tenantCtx.tenantId;
     const rows = await this.prisma.expense.findMany({
       where: {
         tenantId,
         ...(opts.branchId && { branchId: opts.branchId }),
+        ...(opts.vendor && { vendor: opts.vendor }),
         expenseDate: {
           gte: new Date(opts.dateFrom + 'T00:00:00.000'),
           lte: new Date(opts.dateTo + 'T23:59:59.999'),
@@ -408,6 +409,7 @@ export class ReportsService {
     const items = rows.map((r) => {
       const amount = Number(r.amount ?? 0);
       const paid = Number(r.paidAmount ?? 0);
+      const advanceApplied = Number((r as any).advanceApplied ?? 0);
       return {
         id: r.id,
         expenseDate: r.expenseDate.toISOString(),
@@ -418,7 +420,8 @@ export class ReportsService {
         vendor: r.vendor ?? null,
         amount: round2(amount),
         paidAmount: round2(paid),
-        outstanding: round2(amount - paid),
+        advanceApplied: round2(advanceApplied),
+        outstanding: round2(amount - paid - advanceApplied),
         paymentStatus: r.paymentStatus as string,
         dueDate: r.dueDate ? r.dueDate.toISOString() : null,
         // Itemised payment breakdown — each (possibly partial) payment with its date & details.
@@ -436,10 +439,11 @@ export class ReportsService {
       (a, i) => {
         a.amount += i.amount;
         a.paid += i.paidAmount;
+        a.advance += i.advanceApplied;
         a.outstanding += i.outstanding;
         return a;
       },
-      { amount: 0, paid: 0, outstanding: 0 },
+      { amount: 0, paid: 0, advance: 0, outstanding: 0 },
     );
 
     return {
@@ -447,6 +451,7 @@ export class ReportsService {
       totals: {
         amount: round2(totals.amount),
         paid: round2(totals.paid),
+        advance: round2(totals.advance),
         outstanding: round2(totals.outstanding),
         count: items.length,
       },

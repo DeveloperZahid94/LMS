@@ -297,7 +297,9 @@ export class StudentsService {
       throw new BadRequestException('Only a student who has left can be reactivated');
     }
 
-    const data: any = { status: 'ACTIVE', leftAt: null };
+    // Start a fresh ledger stint: prior payments/discounts won't skew the new balance.
+    const now = new Date();
+    const data: any = { status: 'ACTIVE', leftAt: null, ledgerResetAt: now };
     const fields: (keyof ReactivateStudentDto)[] = [
       'branchId', 'fullName', 'email', 'phone', 'gender',
       'aadhaarNumber', 'voterId', 'fatherName', 'motherName', 'emergencyContact',
@@ -309,7 +311,6 @@ export class StudentsService {
     }
     if (dto.dateOfBirth !== undefined) data.dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : null;
     if (dto.expiresAt !== undefined) data.expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
-    if (dto.balanceAction === 'CLEAR') data.outstandingBalance = 0;
 
     let updated;
     try {
@@ -322,15 +323,48 @@ export class StudentsService {
       throw err;
     }
 
+    // Resolve the prior leaving balance as a real ledger entry so it survives recompute.
+    // amount = 0 keeps these out of income/collections; the figure rides on `discount`.
+    const prevDue = Number((existing as any).outstandingBalance ?? 0);
+    const action = dto.balanceAction ?? 'CARRY';
+    const branchId = data.branchId ?? existing.branchId;
+    if (action === 'CLEAR' && prevDue > 0) {
+      // Waive: log the waived due as a discount in the OLD stint (dated at leave) so it's
+      // on record but excluded from the fresh stint → the new balance starts at nil.
+      await this.prisma.payment.create({
+        data: {
+          tenantId, branchId, studentId: id, amount: 0, discount: prevDue,
+          discountReason: 'Previous dues waived on reactivation',
+          method: PaymentMethod.CASH, status: PaymentStatus.PAID, purpose: 'GENERAL' as any,
+          paidAt: (existing as any).leftAt ?? new Date(now.getTime() - 1000),
+          notes: '[Waiver] Previous dues waived on reactivation',
+        },
+      });
+    } else if (action === 'CARRY' && prevDue !== 0) {
+      // Carry forward: a negative discount in the NEW stint re-adds the prior balance
+      // (works for both a due > 0 and an advance < 0); amount 0 keeps it out of income.
+      await this.prisma.payment.create({
+        data: {
+          tenantId, branchId, studentId: id, amount: 0, discount: -prevDue,
+          discountReason: 'Previous balance carried forward on reactivation',
+          method: PaymentMethod.CASH, status: PaymentStatus.PAID, purpose: 'GENERAL' as any,
+          paidAt: now,
+          notes: '[Carry] Previous balance carried forward on reactivation',
+        },
+      });
+    }
+
+    const outstandingBalance = await this.balance.recompute(tenantId, id);
+
     await this.audit.record({
       tenantId,
       userId: this.tenantCtx.userId,
       action: 'REACTIVATE_STUDENT',
       entity: 'students',
       entityId: id,
-      diff: { before: existing, after: updated, balanceAction: dto.balanceAction ?? 'CARRY' },
+      diff: { before: existing, after: { ...updated, outstandingBalance }, balanceAction: action, prevDue },
     });
-    return { ...updated, outstandingBalance: Number((updated as any).outstandingBalance ?? 0) };
+    return { ...updated, outstandingBalance };
   }
 
   /**

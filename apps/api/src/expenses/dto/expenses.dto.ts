@@ -51,6 +51,11 @@ export class CreateExpenseDto {
   @IsString()
   vendor?: string;
 
+  /** Optional link to the Vendor master — enables drawing down the vendor's advance wallet. */
+  @IsOptional()
+  @IsUUID()
+  vendorId?: string;
+
   /** Optional staff member this expense is attributed to (e.g. SALARY recipient). */
   @IsOptional()
   @IsUUID()
@@ -86,6 +91,7 @@ export class UpdateExpenseDto {
   @IsOptional() @IsUUID()                              branchId?: string;
   @IsOptional() @IsString()                            paymentMethod?: string;
   @IsOptional() @IsString()                            vendor?: string;
+  @IsOptional() @IsUUID()                              vendorId?: string;
   /** Pass an empty string to clear the attribution. */
   @IsOptional() @IsString()                            staffId?: string;
   @IsOptional() @IsString()                            notes?: string;

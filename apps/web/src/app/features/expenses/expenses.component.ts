@@ -6,6 +6,7 @@ import {
 } from './expenses.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { StaffApiService, Staff } from '../../core/services/staff.service';
+import { VendorsApiService, Vendor } from '../../core/services/vendors.service';
 import { ToastService } from '../../core/services/toast.service';
 
 type CategoryFilter = 'ALL' | ExpenseCategory;
@@ -242,8 +243,19 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               </select>
             </label>
             <label class="form-control">
-              <div class="label py-0.5"><span class="label-text text-sm">Vendor / paid to</span></div>
-              <input class="input input-bordered input-sm" [(ngModel)]="form.vendor" placeholder="e.g. Landlord, Electricity board" />
+              <div class="label py-0.5 justify-between">
+                <span class="label-text text-sm">Vendor / paid to</span>
+                <button type="button" class="btn btn-ghost btn-xs text-primary" (click)="openAddVendor()">+ Add new</button>
+              </div>
+              <select class="select select-bordered select-sm" [(ngModel)]="form.vendor">
+                <option value="">— None —</option>
+                <option *ngFor="let v of vendors()" [value]="v.name">{{ v.name }}</option>
+                <!-- Preserve a legacy free-text vendor not in the master list -->
+                <option *ngIf="form.vendor && !vendorExists(form.vendor)" [value]="form.vendor">{{ form.vendor }}</option>
+              </select>
+              <div class="label py-0.5" *ngIf="!editingId() && selectedVendorAdvance() > 0">
+                <span class="label-text-alt text-xs text-success">₹{{ selectedVendorAdvance() | number }} advance available — auto-applied to this expense</span>
+              </div>
             </label>
             <label class="form-control" *ngIf="staff().length">
               <div class="label py-0.5"><span class="label-text text-sm">Staff member</span></div>
@@ -365,20 +377,48 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
       </div>
       <form method="dialog" class="modal-backdrop"><button type="button" (click)="paying.set(null)">close</button></form>
     </dialog>
+
+    <!-- ============ QUICK-ADD VENDOR ============ -->
+    <dialog class="modal" [class.modal-open]="addingVendor()">
+      <div class="modal-box max-w-sm">
+        <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="closeAddVendor()">✕</button></form>
+        <h3 class="font-bold text-lg">Add a vendor</h3>
+        <p class="text-sm opacity-60 mt-1">Adds to your vendor list. Manage full details under Settings → Vendors.</p>
+        <label class="form-control mt-4">
+          <div class="label py-1"><span class="label-text text-sm">Vendor name *</span></div>
+          <input class="input input-bordered input-sm" [(ngModel)]="newVendorName" placeholder="e.g. Landlord, Electricity board"
+                 (keydown.enter)="submitNewVendor(); $event.preventDefault()" />
+        </label>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost btn-sm" (click)="closeAddVendor()">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" [disabled]="!newVendorName.trim() || addingVendorLoading()" (click)="submitNewVendor()">
+            <span *ngIf="addingVendorLoading()" class="loading loading-spinner loading-sm"></span> Add
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeAddVendor()">close</button></form>
+    </dialog>
   `,
 })
 export class ExpensesComponent implements OnInit {
   private api = inject(ExpensesApiService);
   private branchesApi = inject(BranchesApiService);
   private staffApi = inject(StaffApiService);
+  private vendorsApi = inject(VendorsApiService);
   private toast = inject(ToastService);
 
   data = signal<Expense[]>([]);
   stats = signal<ExpenseStats | null>(null);
   branches = signal<Branch[]>([]);
   staff = signal<Staff[]>([]);
+  vendors = signal<Vendor[]>([]);
   loading = signal(false);
   busy = signal(false);
+
+  // quick-add vendor (inline, mirrors the exam-target add on the student form)
+  addingVendor = signal(false);
+  addingVendorLoading = signal(false);
+  newVendorName = '';
 
   searchTerm = signal('');
   categoryFilter = signal<CategoryFilter>('ALL');
@@ -463,6 +503,42 @@ export class ExpensesComponent implements OnInit {
     this.reload();
     this.branchesApi.list().subscribe({ next: (bs) => this.branches.set(bs), error: () => {} });
     this.staffApi.list(true).subscribe({ next: (st) => this.staff.set(st), error: () => {} });
+    this.loadVendors();
+  }
+
+  loadVendors() {
+    this.vendorsApi.list(true).subscribe({ next: (v) => this.vendors.set(v), error: () => {} });
+  }
+
+  vendorExists(name: string): boolean {
+    return this.vendors().some((v) => v.name === name);
+  }
+
+  /** Advance wallet balance of the currently-selected vendor (0 if none). */
+  selectedVendorAdvance(): number {
+    return this.vendors().find((v) => v.name === this.form.vendor)?.advanceBalance ?? 0;
+  }
+
+  // ----- quick-add vendor (inline) -----
+  openAddVendor() { this.newVendorName = ''; this.addingVendor.set(true); this.blur(); }
+  closeAddVendor() { this.addingVendor.set(false); this.addingVendorLoading.set(false); }
+  submitNewVendor() {
+    const name = this.newVendorName.trim();
+    if (!name) return;
+    this.addingVendorLoading.set(true);
+    this.vendorsApi.create({ name }).subscribe({
+      next: (created) => {
+        this.vendors.update((arr) => [...arr, created].sort((a, b) => a.name.localeCompare(b.name)));
+        this.form.vendor = created.name;          // auto-select the new vendor
+        this.toast.success(`Added vendor "${created.name}"`);
+        this.closeAddVendor();
+      },
+      error: (err) => {
+        const msg = err?.error?.message;
+        this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? 'Could not add vendor'));
+        this.addingVendorLoading.set(false);
+      },
+    });
   }
 
   goTo(p: number) {
@@ -638,6 +714,8 @@ export class ExpensesComponent implements OnInit {
       branchId: this.form.branchId || undefined,
       paymentMethod: this.form.paymentMethod || undefined,
       vendor: this.form.vendor?.trim() || undefined,
+      // Map the selected vendor name to its id so the API can draw down its advance wallet.
+      vendorId: this.vendors().find((v) => v.name === this.form.vendor)?.id || undefined,
       // On create, omit when empty (the API validates staffId as a UUID).
       // On edit, send '' so the API clears a previously-set attribution.
       staffId: this.form.staffId || (id ? '' : undefined),

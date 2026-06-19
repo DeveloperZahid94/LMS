@@ -58,8 +58,8 @@ export class ReportsController {
   }
 
   @Get('expense-detail')
-  expenseDetail(@Query() q: ReportsRangeDto) {
-    return this.service.expenseDetail(q);
+  expenseDetail(@Query() q: ReportsRangeDto, @Query('vendor') vendor?: string) {
+    return this.service.expenseDetail({ ...q, vendor });
   }
 
   @Get('aging')

@@ -16,9 +16,10 @@ import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { IdleService } from '../../core/services/idle.service';
 import { StaffApiService, Staff, CreateStaffDto, UpdateStaffDto } from '../../core/services/staff.service';
+import { VendorsApiService, Vendor } from '../../core/services/vendors.service';
 import { AuditApiService } from '../audit/audit.service';
 
-type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'staff' | 'appearance' | 'about';
+type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'security' | 'staff' | 'vendors' | 'appearance' | 'about';
 
 @Component({
   selector: 'lms-settings',
@@ -675,6 +676,128 @@ type Section = 'profile' | 'business' | 'sms' | 'backup' | 'biometric' | 'securi
         <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeStaffEditor()">close</button></form>
       </dialog>
     </ng-container>
+
+    <!-- =========================== VENDORS =========================== -->
+    <ng-container *ngIf="section() === 'vendors'">
+      <div class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body p-5">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div>
+              <div class="font-bold text-lg">Vendors</div>
+              <p class="text-sm opacity-60">Parties you pay — landlord, electricity board, suppliers… Pick them (or add on the fly) when recording an expense.</p>
+            </div>
+            <button class="btn btn-primary btn-sm" (click)="openVendorCreate()">+ Add vendor</button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-xs uppercase tracking-wider">
+                  <th>Name</th><th>Contact</th><th>Phone</th><th>GST</th><th class="text-right">Advance</th><th>Status</th><th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let v of vendors()" class="hover">
+                  <td>
+                    <div class="font-medium">{{ v.name }}</div>
+                    <div class="text-xs opacity-50" *ngIf="v.email">{{ v.email }}</div>
+                  </td>
+                  <td class="text-sm">{{ v.contactPerson || '—' }}</td>
+                  <td class="text-sm">{{ v.phone || '—' }}</td>
+                  <td class="text-sm">{{ v.gstNumber || '—' }}</td>
+                  <td class="text-right text-sm" [class.text-success]="v.advanceBalance > 0" [class.font-medium]="v.advanceBalance > 0">
+                    {{ v.advanceBalance > 0 ? '₹' + (v.advanceBalance | number) : '—' }}
+                  </td>
+                  <td><span class="badge badge-sm" [class.badge-success]="v.isActive" [class.badge-ghost]="!v.isActive">{{ v.isActive ? 'Active' : 'Inactive' }}</span></td>
+                  <td class="text-right whitespace-nowrap">
+                    <button class="btn btn-ghost btn-xs text-success" (click)="openVendorAdvance(v)" title="Add advance payment">₹+</button>
+                    <button class="btn btn-ghost btn-xs" (click)="openVendorEdit(v)" title="Edit">✎</button>
+                    <button class="btn btn-ghost btn-xs text-error" (click)="deleteVendor(v)" title="Delete">🗑</button>
+                  </td>
+                </tr>
+                <tr *ngIf="vendors().length === 0"><td colspan="7" class="text-center opacity-60 py-6">No vendors yet. Add your first vendor.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- vendor editor modal -->
+      <dialog class="modal" [class.modal-open]="vendorEditorOpen()">
+        <div class="modal-box max-w-lg">
+          <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="closeVendorEditor()">✕</button></form>
+          <h3 class="font-bold text-lg">{{ editingVendorId() ? 'Edit vendor' : 'Add vendor' }}</h3>
+          <form [formGroup]="vendorForm" (ngSubmit)="saveVendor()" class="space-y-3 mt-3">
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Vendor name *</span></div>
+              <input class="input input-bordered input-sm" formControlName="name" placeholder="e.g. Sharma Stationers" />
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Contact person</span></div>
+                <input class="input input-bordered input-sm" formControlName="contactPerson" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Phone</span></div>
+                <input class="input input-bordered input-sm" formControlName="phone" placeholder="+91xxxxxxxxxx" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">Email</span></div>
+                <input class="input input-bordered input-sm" type="email" formControlName="email" />
+              </label>
+              <label class="form-control">
+                <div class="label py-1"><span class="label-text">GST number</span></div>
+                <input class="input input-bordered input-sm" formControlName="gstNumber" />
+              </label>
+            </div>
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Address</span></div>
+              <input class="input input-bordered input-sm" formControlName="address" />
+            </label>
+            <label class="form-control">
+              <div class="label py-1"><span class="label-text">Notes</span></div>
+              <input class="input input-bordered input-sm" formControlName="notes" />
+            </label>
+            <label class="label cursor-pointer justify-start gap-2">
+              <input type="checkbox" class="checkbox checkbox-sm" formControlName="isActive" />
+              <span class="label-text">Active (show in the expense dropdown)</span>
+            </label>
+            <div class="modal-action">
+              <button type="button" class="btn btn-ghost" (click)="closeVendorEditor()">Cancel</button>
+              <button type="submit" class="btn btn-primary" [disabled]="savingVendor() || vendorForm.invalid">
+                <span *ngIf="savingVendor()" class="loading loading-spinner loading-sm"></span>
+                {{ editingVendorId() ? 'Save changes' : 'Add vendor' }}
+              </button>
+            </div>
+          </form>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button type="button" (click)="closeVendorEditor()">close</button></form>
+      </dialog>
+
+      <!-- vendor advance modal -->
+      <dialog class="modal" [class.modal-open]="!!advancingVendor()">
+        <div class="modal-box max-w-sm" *ngIf="advancingVendor() as v">
+          <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="advancingVendor.set(null)">✕</button></form>
+          <h3 class="font-bold text-lg">Advance payment</h3>
+          <p class="text-sm opacity-60 mt-1">Prepay <strong>{{ v.name }}</strong>. The balance is auto-applied to their future expenses. Current advance: <span class="text-success font-medium">₹{{ v.advanceBalance | number }}</span></p>
+          <label class="form-control mt-3">
+            <div class="label py-1"><span class="label-text text-sm">Amount (₹) *</span></div>
+            <input class="input input-bordered input-sm" type="number" min="0.01" step="0.01" [(ngModel)]="advanceAmount" />
+          </label>
+          <label class="form-control">
+            <div class="label py-1"><span class="label-text text-sm">Notes (optional)</span></div>
+            <input class="input input-bordered input-sm" [(ngModel)]="advanceNotes" placeholder="e.g. cheque no. 0012" />
+          </label>
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost btn-sm" (click)="advancingVendor.set(null)">Cancel</button>
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="savingAdvance() || !(advanceAmount > 0)" (click)="saveVendorAdvance()">
+              <span *ngIf="savingAdvance()" class="loading loading-spinner loading-sm"></span> Add advance
+            </button>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button type="button" (click)="advancingVendor.set(null)">close</button></form>
+      </dialog>
+    </ng-container>
   `,
 })
 export class SettingsComponent implements OnInit {
@@ -686,6 +809,7 @@ export class SettingsComponent implements OnInit {
   private fb = inject(FormBuilder);
   private idle = inject(IdleService);
   private staffApi = inject(StaffApiService);
+  private vendorsApi = inject(VendorsApiService);
   private branchesApi = inject(BranchesApiService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -702,6 +826,7 @@ export class SettingsComponent implements OnInit {
     { key: 'biometric', label: 'Biometric Device',icon: '🛡' },
     { key: 'security',  label: 'Security',        icon: '🔒' },
     { key: 'staff',     label: 'Staff',           icon: '👥' },
+    { key: 'vendors',   label: 'Vendors',         icon: '🏬' },
     { key: 'appearance',label: 'Appearance',      icon: '🎨' },
     { key: 'about',     label: 'About',           icon: 'ⓘ' },
   ];
@@ -744,6 +869,26 @@ export class SettingsComponent implements OnInit {
     branchId: [''],
     phone: [''],
     password: ['', [Validators.minLength(8)]],
+  });
+
+  // ----- Vendors -----
+  vendors = signal<Vendor[]>([]);
+  savingVendor = signal(false);
+  vendorEditorOpen = signal(false);
+  editingVendorId = signal<string | null>(null);
+  advancingVendor = signal<Vendor | null>(null);
+  savingAdvance = signal(false);
+  advanceAmount = 0;
+  advanceNotes = '';
+  vendorForm = this.fb.group({
+    name: ['', [Validators.required, Validators.maxLength(120)]],
+    contactPerson: [''],
+    phone: [''],
+    email: [''],
+    gstNumber: [''],
+    address: [''],
+    notes: [''],
+    isActive: [true],
   });
 
   tenantSlug = computed(() => this.auth.user()?.tenantSlug ?? '');
@@ -844,6 +989,90 @@ export class SettingsComponent implements OnInit {
       this.loadStaff();
       this.branchesApi.list().subscribe({ next: (bs) => this.branches.set(bs), error: () => {} });
     }
+    this.loadVendors();
+  }
+
+  // ----- Vendors management -----
+  loadVendors() {
+    this.vendorsApi.list().subscribe({
+      next: (rows) => this.vendors.set(rows),
+      error: () => {},
+    });
+  }
+
+  openVendorCreate() {
+    this.editingVendorId.set(null);
+    this.vendorForm.reset({ name: '', contactPerson: '', phone: '', email: '', gstNumber: '', address: '', notes: '', isActive: true });
+    this.vendorEditorOpen.set(true);
+  }
+
+  openVendorEdit(v: Vendor) {
+    this.editingVendorId.set(v.id);
+    this.vendorForm.reset({
+      name: v.name,
+      contactPerson: v.contactPerson ?? '',
+      phone: v.phone ?? '',
+      email: v.email ?? '',
+      gstNumber: v.gstNumber ?? '',
+      address: v.address ?? '',
+      notes: v.notes ?? '',
+      isActive: v.isActive,
+    });
+    this.vendorEditorOpen.set(true);
+  }
+
+  closeVendorEditor() { this.vendorEditorOpen.set(false); this.savingVendor.set(false); }
+
+  saveVendor() {
+    if (this.vendorForm.invalid) { this.vendorForm.markAllAsTouched(); return; }
+    const v = this.vendorForm.value;
+    const payload = {
+      name: (v.name ?? '').trim(),
+      contactPerson: v.contactPerson?.trim() || undefined,
+      phone: v.phone?.trim() || undefined,
+      email: v.email?.trim() || undefined,
+      gstNumber: v.gstNumber?.trim() || undefined,
+      address: v.address?.trim() || undefined,
+      notes: v.notes?.trim() || undefined,
+      isActive: v.isActive ?? true,
+    };
+    this.savingVendor.set(true);
+    const id = this.editingVendorId();
+    const req = id ? this.vendorsApi.update(id, payload) : this.vendorsApi.create(payload);
+    req.subscribe({
+      next: () => { this.toast.success(id ? 'Vendor updated' : 'Vendor added'); this.closeVendorEditor(); this.loadVendors(); },
+      error: (err) => {
+        const msg = err?.error?.message;
+        this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? 'Could not save vendor'));
+        this.savingVendor.set(false);
+      },
+    });
+  }
+
+  deleteVendor(v: Vendor) {
+    if (!confirm(`Delete vendor "${v.name}"? Existing expenses keep their recorded vendor name.`)) return;
+    this.vendorsApi.remove(v.id).subscribe({
+      next: () => { this.toast.success('Vendor deleted'); this.loadVendors(); },
+      error: (err) => {
+        const msg = err?.error?.message;
+        this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? 'Could not delete vendor'));
+      },
+    });
+  }
+
+  openVendorAdvance(v: Vendor) { this.advancingVendor.set(v); this.advanceAmount = 0; this.advanceNotes = ''; }
+  saveVendorAdvance() {
+    const v = this.advancingVendor();
+    if (!v || !(this.advanceAmount > 0)) return;
+    this.savingAdvance.set(true);
+    this.vendorsApi.recordAdvance(v.id, { amount: Number(this.advanceAmount), notes: this.advanceNotes.trim() || undefined }).subscribe({
+      next: () => { this.toast.success(`Advance of ₹${this.advanceAmount} recorded for ${v.name}`); this.savingAdvance.set(false); this.advancingVendor.set(null); this.loadVendors(); },
+      error: (err) => {
+        const msg = err?.error?.message;
+        this.toast.error(Array.isArray(msg) ? msg.join(' · ') : (msg ?? 'Could not record advance'));
+        this.savingAdvance.set(false);
+      },
+    });
   }
 
   // ----- Staff management -----

@@ -136,6 +136,7 @@ export interface ExpenseDetailRow {
   vendor: string | null;
   amount: number;
   paidAmount: number;
+  advanceApplied: number;
   outstanding: number;
   paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID';
   dueDate: string | null;
@@ -144,7 +145,7 @@ export interface ExpenseDetailRow {
 
 export interface ExpenseDetail {
   items: ExpenseDetailRow[];
-  totals: { amount: number; paid: number; outstanding: number; count: number };
+  totals: { amount: number; paid: number; advance: number; outstanding: number; count: number };
 }
 
 export interface IncomeSourceRow {
@@ -207,8 +208,10 @@ export class ReportsApiService {
     return this.http.get<IncomeBySource>(`${this.base}/income-sources`, { params: this.params(opts) });
   }
 
-  expenseDetail(opts: RangeOpts) {
-    return this.http.get<ExpenseDetail>(`${this.base}/expense-detail`, { params: this.params(opts) });
+  expenseDetail(opts: RangeOpts & { vendor?: string }) {
+    let p = this.params(opts);
+    if (opts.vendor) p = p.set('vendor', opts.vendor);
+    return this.http.get<ExpenseDetail>(`${this.base}/expense-detail`, { params: p });
   }
 
   private params(opts: RangeOpts): HttpParams {

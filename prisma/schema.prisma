@@ -40,6 +40,7 @@ model Tenant {
   featureFlags FeatureFlag[]
   plans        StudentPlan[]
   examTargets  ExamTarget[]
+  vendors      Vendor[]
   notifications Notification[]
   auditLogs    AuditLog[]
   pgRooms      PgRoom[]
@@ -206,6 +207,7 @@ model Student {
   joinedAt           DateTime @default(now())   // registration date
   expiresAt          DateTime?                  // membership/plan expiry
   leftAt             DateTime?                  // set when soft-deleted (status LEFT); cleared on reactivation
+  ledgerResetAt      DateTime?                  // on reactivation: balance ignores payments/discounts before this, so a prior stint doesn't skew the new one
   outstandingBalance Decimal  @default(0) @db.Decimal(10, 2) // unpaid balance from part payments
 
   qrCode             String   @unique @default(uuid()) // scanned for attendance
@@ -386,6 +388,30 @@ model ExamTarget {
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("exam_targets")
+}
+
+// Vendor master — "paid to" parties on expenses (landlord, electricity board, suppliers…).
+// Holds contact/billing detail so the list is reusable and can later carry advance balances.
+model Vendor {
+  id            String   @id @default(uuid())
+  tenantId      String
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  gstNumber     String?                          // GSTIN for billing (India)
+  address       String?
+  notes         String?
+  isActive      Boolean  @default(true)          // inactive vendors are hidden from the expense dropdown
+  advanceBalance Decimal @db.Decimal(10, 2) @default(0)  // prepaid amount held with this vendor, drawn down by future expenses
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("vendors")
 }
 
 model StudentPlanEnrollment {
@@ -631,12 +657,14 @@ model Expense {
   expenseDate DateTime @default(now())          // when the cost was incurred
   paymentMethod String?                         // CASH | UPI | NETBANKING | CARD | CHEQUE (free-text for flexibility)
   vendor      String?                          // who was paid (landlord, electricity board, staff name…)
+  vendorId    String?                          // optional link to the Vendor master (enables advance draw-down)
   staffId     String?                          // optional staff this expense is attributed to (e.g. SALARY recipient)
   notes       String?
 
   // ---- Credit / pay-later ----
   paymentStatus ExpensePaymentStatus @default(PAID)  // PAID = settled in full; UNPAID/PARTIAL = on credit
-  paidAmount    Decimal  @db.Decimal(10, 2) @default(0)  // how much has been paid so far (outstanding = amount - paidAmount)
+  paidAmount    Decimal  @db.Decimal(10, 2) @default(0)  // cash paid so far (outstanding = amount - paidAmount - advanceApplied)
+  advanceApplied Decimal @db.Decimal(10, 2) @default(0)  // amount of this expense covered from the vendor's advance wallet
   dueDate       DateTime?                        // when the credit is due to be cleared
   paidDate      DateTime?                        // when the expense was fully settled
 

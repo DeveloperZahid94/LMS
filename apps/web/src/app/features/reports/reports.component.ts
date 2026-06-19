@@ -9,6 +9,7 @@ import {
   ReportsApiService, ReportsSummary, StudentStatusFilter, StudentSummaryRow, TimeseriesPoint,
 } from './reports.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
+import { VendorsApiService, Vendor } from '../../core/services/vendors.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportColumn, exportCsv, exportPdf, fmtDate } from '../../shared/utils/export.util';
 
@@ -107,6 +108,10 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
         <select class="select select-bordered select-sm" [(ngModel)]="branchFilter" (ngModelChange)="reload()">
           <option [ngValue]="undefined">All branches</option>
           <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }}</option>
+        </select>
+        <select *ngIf="tab() === 'expenseDetail'" class="select select-bordered select-sm" [ngModel]="vendorFilter()" (ngModelChange)="onVendorFilter($event)" title="Filter by vendor">
+          <option value="">All vendors</option>
+          <option *ngFor="let v of vendors()" [value]="v.name">{{ v.name }}</option>
         </select>
         <div class="ml-auto flex items-center gap-2" *ngIf="tab() === 'period' || tab() === 'pl'">
           <span class="text-xs uppercase tracking-wider opacity-50 hidden sm:inline">Group by</span>
@@ -333,6 +338,7 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
               <th>Tagged to</th>
               <th class="text-right">Expense</th>
               <th class="text-right">Paid</th>
+              <th class="text-right">Adv</th>
               <th class="text-right">Outstanding</th>
             </tr>
           </thead>
@@ -355,6 +361,9 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
                   ₹{{ e.paidAmount | number }}
                   <span *ngIf="e.payments.length" class="block text-xs opacity-60">{{ e.payments.length }} payment{{ e.payments.length === 1 ? '' : 's' }}</span>
                 </td>
+                <td class="text-right" [class.text-info]="e.advanceApplied > 0" [class.opacity-40]="e.advanceApplied <= 0">
+                  {{ e.advanceApplied > 0 ? '₹' + (e.advanceApplied | number) : '—' }}
+                </td>
                 <td class="text-right" [class.text-warning]="e.outstanding > 0" [class.opacity-50]="e.outstanding <= 0">
                   ₹{{ e.outstanding | number }}
                   <span *ngIf="e.outstanding > 0 && e.dueDate" class="block text-xs opacity-60">due {{ e.dueDate | date:'dd/MM/yy' }}</span>
@@ -372,17 +381,19 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
                   <td class="text-right opacity-30">—</td>
                   <td class="text-right text-success">₹{{ p.amount | number }}</td>
                   <td></td>
+                  <td></td>
                 </tr>
               </ng-container>
             </ng-container>
-            <tr *ngIf="d.items.length === 0 && !loading()"><td colspan="8" class="text-center opacity-60 py-10">No expenses recorded in this range.</td></tr>
+            <tr *ngIf="d.items.length === 0 && !loading()"><td colspan="9" class="text-center opacity-60 py-10">No expenses recorded in this range.</td></tr>
           </tbody>
-          <tbody *ngIf="!expenseDetail()"><tr><td colspan="8" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr></tbody>
+          <tbody *ngIf="!expenseDetail()"><tr><td colspan="9" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr></tbody>
           <tfoot *ngIf="expenseDetail() as d" class="sticky bottom-0">
             <tr class="bg-base-200 font-semibold">
               <td colspan="5">{{ d.totals.count }} expense{{ d.totals.count === 1 ? '' : 's' }}</td>
               <td class="text-right">₹{{ d.totals.amount | number }}</td>
               <td class="text-right text-success">₹{{ d.totals.paid | number }}</td>
+              <td class="text-right text-info">₹{{ d.totals.advance | number }}</td>
               <td class="text-right text-warning">₹{{ d.totals.outstanding | number }}</td>
             </tr>
           </tfoot>
@@ -453,6 +464,7 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
 export class ReportsComponent implements OnInit {
   private api = inject(ReportsApiService);
   private branchesApi = inject(BranchesApiService);
+  private vendorsApi = inject(VendorsApiService);
   private toast = inject(ToastService);
 
   presetList: { key: Preset; label: string }[] = [
@@ -497,6 +509,8 @@ export class ReportsComponent implements OnInit {
   incomeSources = signal<IncomeBySource | null>(null);
   expenseDetail = signal<ExpenseDetail | null>(null);
   expandedRows = signal<Set<string>>(new Set());
+  vendors = signal<Vendor[]>([]);
+  vendorFilter = signal<string>('');   // '' = all vendors
 
   filteredStudents = computed(() => {
     const q = this.studentSearch.trim().toLowerCase();
@@ -549,7 +563,22 @@ export class ReportsComponent implements OnInit {
 
   ngOnInit() {
     this.branchesApi.list().subscribe((bs) => this.branches.set(bs));
+    this.vendorsApi.list().subscribe({ next: (vs) => this.vendors.set(vs), error: () => {} });
     this.applyPreset('month');
+  }
+
+  onVendorFilter(name: string) {
+    this.vendorFilter.set(name);
+    this.reloadExpenseDetail();
+  }
+
+  /** Re-fetch just the expense detail (vendor filter changes don't need a full reload). */
+  private reloadExpenseDetail() {
+    if (!this.dateFrom || !this.dateTo) return;
+    this.api.expenseDetail({
+      dateFrom: this.dateFrom, dateTo: this.dateTo, branchId: this.branchFilter,
+      vendor: this.vendorFilter() || undefined,
+    }).subscribe({ next: (r) => this.expenseDetail.set(r), error: () => {} });
   }
 
   setPreset(p: Preset) {
@@ -654,7 +683,7 @@ export class ReportsComponent implements OnInit {
       aging:    this.api.aging(this.branchFilter),
       pl:       this.api.profitLoss({ ...range, bucket: this.bucket() }),
       sources:  this.api.incomeBySource(range),
-      expenseDetail: this.api.expenseDetail(range),
+      expenseDetail: this.api.expenseDetail({ ...range, vendor: this.vendorFilter() || undefined }),
     }).subscribe({
       next: (r) => {
         this.summary.set(r.summary);
@@ -783,6 +812,7 @@ export class ReportsComponent implements OnInit {
         { header: 'Vendor',          value: (e) => e.vendor ?? '' },
         { header: 'Expense (INR)',   value: (e) => e.amount },
         { header: 'Paid (INR)',      value: (e) => e.paidAmount },
+        { header: 'Advance (INR)',   value: (e) => e.advanceApplied },
         { header: 'Outstanding (INR)',value: (e) => e.outstanding },
         { header: 'Status',          value: (e) => e.paymentStatus },
         { header: 'Due date',        value: (e) => e.dueDate ? fmtDate(e.dueDate) : '' },
