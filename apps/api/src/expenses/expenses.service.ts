@@ -2,7 +2,18 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
-import { CreateExpenseDto, ExpenseListQueryDto, UpdateExpenseDto } from './dto/expenses.dto';
+import {
+  CreateExpenseDto, ExpenseListQueryDto, PayExpenseDto, UpdateExpenseDto,
+} from './dto/expenses.dto';
+
+type ExpensePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
+
+/** Derives the settlement status from the total and how much has been paid. */
+function deriveStatus(amount: number, paid: number): ExpensePaymentStatus {
+  if (paid <= 0) return 'UNPAID';
+  if (paid >= amount) return 'PAID';
+  return 'PARTIAL';
+}
 
 @Injectable()
 export class ExpensesService {
@@ -18,6 +29,7 @@ export class ExpensesService {
     if (q.branchId) where.branchId = q.branchId;
     if (q.staffId) where.staffId = q.staffId;
     if (q.category) where.category = q.category;
+    if (q.paymentStatus) where.paymentStatus = q.paymentStatus;
     if (q.from || q.to) {
       where.expenseDate = {};
       if (q.from) where.expenseDate.gte = new Date(q.from);
@@ -42,7 +54,7 @@ export class ExpensesService {
 
     const rows = await this.prisma.expense.findMany({
       where,
-      select: { amount: true, category: true, expenseDate: true },
+      select: { amount: true, paidAmount: true, paymentStatus: true, category: true, expenseDate: true },
     });
 
     // Start of the current month, used to split "this month" from all-time.
@@ -52,6 +64,8 @@ export class ExpensesService {
     let totalAmount = 0;
     let thisMonthAmount = 0;
     let thisMonthCount = 0;
+    let outstandingAmount = 0;
+    let outstandingCount = 0;
     const byCategory: Record<string, number> = {};
 
     for (const r of rows) {
@@ -61,6 +75,10 @@ export class ExpensesService {
       if (new Date(r.expenseDate) >= monthStart) {
         thisMonthAmount += amt;
         thisMonthCount++;
+      }
+      if (r.paymentStatus !== 'PAID') {
+        outstandingAmount += amt - Number(r.paidAmount ?? 0);
+        outstandingCount++;
       }
     }
 
@@ -73,6 +91,8 @@ export class ExpensesService {
       totalAmount: Number(totalAmount.toFixed(2)),
       thisMonthAmount: Number(thisMonthAmount.toFixed(2)),
       thisMonthCount,
+      outstandingAmount: Number(outstandingAmount.toFixed(2)),
+      outstandingCount,
       topCategory: categories[0] ?? null,
       categories,
     };
@@ -100,6 +120,10 @@ export class ExpensesService {
     }
     if (dto.staffId) await this.assertStaff(tenantId, dto.staffId);
 
+    // Credit (pay-later): paidAmount may be 0..amount; otherwise the expense is paid in full.
+    const paidAmount = dto.onCredit ? Math.min(dto.paidAmount ?? 0, dto.amount) : dto.amount;
+    const paymentStatus = deriveStatus(dto.amount, paidAmount);
+
     const created = await this.prisma.expense.create({
       data: {
         tenantId,
@@ -112,6 +136,10 @@ export class ExpensesService {
         vendor: dto.vendor?.trim() || null,
         staffId: dto.staffId ?? null,
         notes: dto.notes ?? null,
+        paymentStatus: paymentStatus as any,
+        paidAmount,
+        dueDate: dto.onCredit && dto.dueDate ? new Date(dto.dueDate) : null,
+        paidDate: paymentStatus === 'PAID' ? new Date() : null,
       },
       include: {
         branch: { select: { id: true, name: true, code: true } },
@@ -136,6 +164,27 @@ export class ExpensesService {
     }
     if (dto.staffId) await this.assertStaff(tenantId, dto.staffId);
 
+    // Recompute the credit fields whenever the amount or any credit input changes.
+    const creditTouched =
+      dto.onCredit !== undefined || dto.paidAmount !== undefined ||
+      dto.dueDate !== undefined || dto.amount !== undefined;
+    let creditData: any = {};
+    if (creditTouched) {
+      const amount = dto.amount !== undefined ? dto.amount : Number(existing.amount);
+      let paid: number;
+      if (dto.onCredit === false) paid = amount;                          // explicitly settled in full
+      else if (dto.paidAmount !== undefined) paid = Math.min(dto.paidAmount, amount);
+      else paid = Math.min(Number(existing.paidAmount), amount);          // amount may have shrunk
+      const status = deriveStatus(amount, paid);
+      creditData = {
+        paymentStatus: status as any,
+        paidAmount: paid,
+        paidDate: status === 'PAID' ? (existing.paidDate ?? new Date()) : null,
+      };
+      if (status === 'PAID') creditData.dueDate = null;                   // nothing left to be due
+      else if (dto.dueDate !== undefined) creditData.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    }
+
     const updated = await this.prisma.expense.update({
       where: { id },
       data: {
@@ -148,6 +197,7 @@ export class ExpensesService {
         ...(dto.vendor !== undefined && { vendor: dto.vendor?.trim() || null }),
         ...(dto.staffId !== undefined && { staffId: dto.staffId || null }),
         ...(dto.notes !== undefined && { notes: dto.notes || null }),
+        ...creditData,
       },
       include: {
         branch: { select: { id: true, name: true, code: true } },
@@ -157,6 +207,43 @@ export class ExpensesService {
     await this.audit.record({
       tenantId, userId: this.tenantCtx.userId,
       action: 'EXPENSE_UPDATE', entity: 'expenses', entityId: id, diff: { before: existing, after: updated },
+    });
+    return this.shape(updated);
+  }
+
+  /** Records a payment against a credit expense, reducing its outstanding balance. */
+  async pay(id: string, dto: PayExpenseDto) {
+    const tenantId = this.tenantCtx.tenantId;
+    const existing = await this.prisma.expense.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('Expense not found');
+
+    const amount = Number(existing.amount);
+    const outstanding = amount - Number(existing.paidAmount);
+    if (outstanding <= 0) throw new BadRequestException('This expense is already paid in full');
+    if (dto.amount > outstanding + 0.001) {
+      throw new BadRequestException(`Payment exceeds the outstanding balance of ${outstanding.toFixed(2)}`);
+    }
+
+    const paid = Math.min(Number(existing.paidAmount) + dto.amount, amount);
+    const status = deriveStatus(amount, paid);
+
+    const updated = await this.prisma.expense.update({
+      where: { id },
+      data: {
+        paidAmount: paid,
+        paymentStatus: status as any,
+        paidDate: status === 'PAID' ? (dto.paidDate ? new Date(dto.paidDate) : new Date()) : null,
+        ...(dto.paymentMethod && { paymentMethod: dto.paymentMethod }),
+      },
+      include: {
+        branch: { select: { id: true, name: true, code: true } },
+        staff: { select: { id: true, fullName: true, role: true } },
+      },
+    });
+    await this.audit.record({
+      tenantId, userId: this.tenantCtx.userId,
+      action: 'EXPENSE_PAY', entity: 'expenses', entityId: id,
+      diff: { before: existing, after: updated, payment: dto.amount },
     });
     return this.shape(updated);
   }
@@ -194,6 +281,11 @@ export class ExpensesService {
       staff: r.staff ?? null,
       notes: r.notes ?? null,
       branch: r.branch ?? null,
+      paymentStatus: r.paymentStatus ?? 'PAID',
+      paidAmount: r.paidAmount != null ? Number(r.paidAmount) : 0,
+      outstanding: Number(((r.amount != null ? Number(r.amount) : 0) - (r.paidAmount != null ? Number(r.paidAmount) : 0)).toFixed(2)),
+      dueDate: r.dueDate ?? null,
+      paidDate: r.paidDate ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

@@ -631,6 +631,13 @@ model Expense {
   vendor      String?                          // who was paid (landlord, electricity board, staff name…)
   staffId     String?                          // optional staff this expense is attributed to (e.g. SALARY recipient)
   notes       String?
+
+  // ---- Credit / pay-later ----
+  paymentStatus ExpensePaymentStatus @default(PAID)  // PAID = settled in full; UNPAID/PARTIAL = on credit
+  paidAmount    Decimal  @db.Decimal(10, 2) @default(0)  // how much has been paid so far (outstanding = amount - paidAmount)
+  dueDate       DateTime?                        // when the credit is due to be cleared
+  paidDate      DateTime?                        // when the expense was fully settled
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -642,6 +649,7 @@ model Expense {
   @@index([tenantId, category])
   @@index([tenantId, branchId])
   @@index([tenantId, staffId])
+  @@index([tenantId, paymentStatus])
   @@map("expenses")
 }
 
@@ -656,6 +664,12 @@ enum ExpenseCategory {
   EQUIPMENT
   MARKETING
   MISC
+}
+
+enum ExpensePaymentStatus {
+  PAID      // settled in full
+  PARTIAL   // partly paid, balance outstanding
+  UNPAID    // on credit, nothing paid yet
 }
 
 // ============================================================

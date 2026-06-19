@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ExpensesService } from './expenses.service';
-import { CreateExpenseDto, ExpenseListQueryDto, UpdateExpenseDto } from './dto/expenses.dto';
+import { CreateExpenseDto, ExpenseListQueryDto, PayExpenseDto, UpdateExpenseDto } from './dto/expenses.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@lms/shared';
 
@@ -35,6 +35,12 @@ export class ExpensesController {
   @Patch(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateExpenseDto) {
     return this.service.update(id, dto);
+  }
+
+  /** Record a payment against a credit (pay-later) expense. */
+  @Post(':id/pay')
+  pay(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PayExpenseDto) {
+    return this.service.pay(id, dto);
   }
 
   @Delete(':id')

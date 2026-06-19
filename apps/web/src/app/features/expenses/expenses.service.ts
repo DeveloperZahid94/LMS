@@ -6,6 +6,8 @@ export type ExpenseCategory =
   | 'RENT' | 'SALARY' | 'ELECTRICITY' | 'WATER' | 'INTERNET'
   | 'MAINTENANCE' | 'SUPPLIES' | 'EQUIPMENT' | 'MARKETING' | 'MISC';
 
+export type ExpensePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
+
 export interface Expense {
   id: string;
   tenantId: string;
@@ -20,6 +22,11 @@ export interface Expense {
   staff: { id: string; fullName: string; role: string } | null;
   notes: string | null;
   branch: { id: string; name: string; code: string } | null;
+  paymentStatus: ExpensePaymentStatus;
+  paidAmount: number;
+  outstanding: number;
+  dueDate: string | null;
+  paidDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,6 +36,8 @@ export interface ExpenseStats {
   totalAmount: number;
   thisMonthAmount: number;
   thisMonthCount: number;
+  outstandingAmount: number;
+  outstandingCount: number;
   topCategory: { category: ExpenseCategory; amount: number } | null;
   categories: { category: ExpenseCategory; amount: number }[];
 }
@@ -43,20 +52,30 @@ export interface CreateExpenseDto {
   vendor?: string;
   staffId?: string;
   notes?: string;
+  onCredit?: boolean;
+  paidAmount?: number;
+  dueDate?: string;
 }
 
 export type UpdateExpenseDto = Partial<CreateExpenseDto>;
+
+export interface PayExpenseDto {
+  amount: number;
+  paymentMethod?: string;
+  paidDate?: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class ExpensesApiService {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/expenses`;
 
-  list(opts: { branchId?: string; staffId?: string; category?: ExpenseCategory; from?: string; to?: string } = {}) {
+  list(opts: { branchId?: string; staffId?: string; category?: ExpenseCategory; paymentStatus?: ExpensePaymentStatus; from?: string; to?: string } = {}) {
     let params = new HttpParams();
     if (opts.branchId) params = params.set('branchId', opts.branchId);
     if (opts.staffId)  params = params.set('staffId', opts.staffId);
     if (opts.category) params = params.set('category', opts.category);
+    if (opts.paymentStatus) params = params.set('paymentStatus', opts.paymentStatus);
     if (opts.from)     params = params.set('from', opts.from);
     if (opts.to)       params = params.set('to', opts.to);
     return this.http.get<Expense[]>(this.base, { params });
@@ -78,6 +97,10 @@ export class ExpensesApiService {
 
   update(id: string, dto: UpdateExpenseDto) {
     return this.http.patch<Expense>(`${this.base}/${id}`, dto);
+  }
+
+  pay(id: string, dto: PayExpenseDto) {
+    return this.http.post<Expense>(`${this.base}/${id}/pay`, dto);
   }
 
   remove(id: string) {

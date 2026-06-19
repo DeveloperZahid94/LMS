@@ -2,7 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
-  ExpensesApiService, Expense, ExpenseStats, ExpenseCategory, CreateExpenseDto,
+  ExpensesApiService, Expense, ExpenseStats, ExpenseCategory, CreateExpenseDto, PayExpenseDto,
 } from './expenses.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { StaffApiService, Staff } from '../../core/services/staff.service';
@@ -28,7 +28,7 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
     </div>
 
     <!-- STATS -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3 shrink-0" *ngIf="stats() as s">
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3 shrink-0" *ngIf="stats() as s">
       <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
         <div class="text-xs opacity-60 uppercase tracking-wider">This month</div>
         <div class="text-2xl font-bold text-primary">₹{{ s.thisMonthAmount | number }}</div>
@@ -40,6 +40,11 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
       <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
         <div class="text-xs opacity-60 uppercase tracking-wider">All-time spend</div>
         <div class="text-2xl font-bold text-error">₹{{ s.totalAmount | number }}</div>
+      </div></div>
+      <div class="card bg-base-100 border shadow-sm" [class.border-warning]="s.outstandingCount" [class.border-base-300]="!s.outstandingCount"><div class="card-body p-3">
+        <div class="text-xs opacity-60 uppercase tracking-wider">Outstanding</div>
+        <div class="text-2xl font-bold" [class.text-warning]="s.outstandingCount" [class.opacity-50]="!s.outstandingCount">₹{{ s.outstandingAmount | number }}</div>
+        <div class="text-xs opacity-60" *ngIf="s.outstandingCount">{{ s.outstandingCount }} on credit</div>
       </div></div>
       <div class="card bg-base-100 border border-base-300 shadow-sm"><div class="card-body p-3">
         <div class="text-xs opacity-60 uppercase tracking-wider">Records</div>
@@ -66,6 +71,13 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
         <select class="select select-bordered select-sm" [(ngModel)]="categoryFilterModel" (ngModelChange)="onCategoryFilter($event)">
           <option value="ALL">All categories</option>
           <option *ngFor="let c of categories" [value]="c.value">{{ c.icon }} {{ c.label }}</option>
+        </select>
+        <select class="select select-bordered select-sm" [(ngModel)]="statusFilterModel" (ngModelChange)="onStatusFilter($event)" title="Filter by payment status">
+          <option value="ALL">All statuses</option>
+          <option value="CREDIT">⏳ On credit (unpaid)</option>
+          <option value="UNPAID">Unpaid</option>
+          <option value="PARTIAL">Part-paid</option>
+          <option value="PAID">Paid</option>
         </select>
         <select *ngIf="branches().length > 1" class="select select-bordered select-sm" [(ngModel)]="branchFilterModel" (ngModelChange)="onBranchFilter($event)">
           <option value="ALL">All branches</option>
@@ -109,6 +121,7 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               <th>Staff</th>
               <th>Vendor</th>
               <th>Method</th>
+              <th>Status</th>
               <th class="text-right">Amount</th>
               <th class="text-right">Actions</th>
             </tr>
@@ -125,25 +138,36 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               <td class="text-sm">{{ e.staff?.fullName || '—' }}</td>
               <td class="text-sm">{{ e.vendor || '—' }}</td>
               <td class="text-sm">{{ e.paymentMethod || '—' }}</td>
+              <td>
+                <span class="badge badge-sm" [ngClass]="statusBadgeClass(e)">{{ statusLabel(e) }}</span>
+                <div class="text-xs mt-0.5" *ngIf="e.paymentStatus !== 'PAID'">
+                  <span class="text-warning font-medium">₹{{ e.outstanding | number }} due</span>
+                  <span class="opacity-50" *ngIf="e.dueDate"> · {{ e.dueDate | date:'dd/MM/yy' }}</span>
+                </div>
+              </td>
               <td class="text-right font-semibold">₹{{ e.amount | number }}</td>
               <td class="text-right">
                 <div class="flex items-center justify-end gap-1">
+                  <button *ngIf="e.paymentStatus !== 'PAID'" class="btn btn-xs btn-success btn-outline" (click)="openPay(e)" title="Record a payment">₹ Pay</button>
                   <button class="btn btn-ghost btn-xs" (click)="openEdit(e)" title="Edit">✎</button>
                   <button class="btn btn-ghost btn-xs text-error" (click)="confirmDelete(e)" title="Delete">🗑</button>
                 </div>
               </td>
             </tr>
             <tr *ngIf="filtered().length === 0 && !loading()">
-              <td colspan="9" class="text-center opacity-60 py-10">
+              <td colspan="10" class="text-center opacity-60 py-10">
                 <div class="text-base mb-1">No expenses match your filters.</div>
                 <button class="link link-primary text-sm" (click)="openCreate()">Add your first expense →</button>
               </td>
             </tr>
-            <tr *ngIf="loading()"><td colspan="9" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
+            <tr *ngIf="loading()"><td colspan="10" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr>
           </tbody>
           <tfoot *ngIf="filtered().length > 0">
             <tr class="bg-base-200 font-semibold">
               <td colspan="7" class="text-right text-xs uppercase opacity-60">Total (filtered)</td>
+              <td class="text-right text-xs">
+                <span *ngIf="filteredOutstanding() > 0" class="text-warning">₹{{ filteredOutstanding() | number }} due</span>
+              </td>
               <td class="text-right">₹{{ filteredTotal() | number }}</td>
               <td></td>
             </tr>
@@ -230,6 +254,26 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
             </label>
           </div>
 
+          <!-- CREDIT / PAY-LATER -->
+          <div class="rounded-lg border border-base-300 p-3 bg-base-200/40">
+            <label class="label cursor-pointer justify-start gap-3 py-0">
+              <input type="checkbox" class="toggle toggle-sm toggle-warning" [(ngModel)]="form.onCredit" (ngModelChange)="onCreditToggle($event)" />
+              <span class="label-text text-sm font-medium">On credit (pay later)</span>
+              <span class="text-xs opacity-60">— record now, settle the balance later</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3" *ngIf="form.onCredit">
+              <label class="form-control">
+                <div class="label py-0.5"><span class="label-text text-sm">Paid up-front (₹)</span></div>
+                <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [max]="form.amount || null" [(ngModel)]="form.paidAmount" placeholder="0" />
+                <div class="label py-0.5"><span class="label-text-alt text-xs text-warning">Outstanding: ₹{{ creditOutstanding() | number }}</span></div>
+              </label>
+              <label class="form-control">
+                <div class="label py-0.5"><span class="label-text text-sm">Due date</span></div>
+                <input class="input input-bordered input-sm" type="date" [(ngModel)]="form.dueDate" />
+              </label>
+            </div>
+          </div>
+
           <label class="form-control">
             <div class="label py-0.5"><span class="label-text text-sm">Notes (optional)</span></div>
             <input class="input input-bordered input-sm" [(ngModel)]="form.notes" placeholder="Any extra detail…" />
@@ -261,6 +305,48 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
       </div>
       <form method="dialog" class="modal-backdrop"><button type="button" (click)="deleting.set(null)">close</button></form>
     </dialog>
+
+    <!-- ============ PAY CREDIT EXPENSE ============ -->
+    <dialog class="modal" [class.modal-open]="!!paying()">
+      <div class="modal-box max-w-md" *ngIf="paying() as e">
+        <form method="dialog"><button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" (click)="paying.set(null)">✕</button></form>
+        <h3 class="font-bold text-lg">₹ Record payment</h3>
+        <p class="text-sm opacity-60 mb-3">Settling <strong>{{ e.title }}</strong> — outstanding <span class="text-warning font-semibold">₹{{ e.outstanding | number }}</span> of ₹{{ e.amount | number }}.</p>
+
+        <div class="space-y-3">
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-sm">Amount paid now (₹) *</span></div>
+            <input class="input input-bordered input-sm" type="number" min="0.01" [max]="e.outstanding" step="0.01" [(ngModel)]="payForm.amount" />
+            <div class="label py-0.5"><button type="button" class="label-text-alt link link-primary text-xs" (click)="payForm.amount = e.outstanding">Pay full balance (₹{{ e.outstanding | number }})</button></div>
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Method</span></div>
+              <select class="select select-bordered select-sm" [(ngModel)]="payForm.paymentMethod">
+                <option value="">—</option>
+                <option value="CASH">Cash</option>
+                <option value="UPI">UPI</option>
+                <option value="NETBANKING">Bank transfer</option>
+                <option value="CARD">Card</option>
+                <option value="CHEQUE">Cheque</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <div class="label py-0.5"><span class="label-text text-sm">Paid on</span></div>
+              <input class="input input-bordered input-sm" type="date" [(ngModel)]="payForm.paidDate" />
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-action mt-3">
+          <button class="btn btn-ghost btn-sm" (click)="paying.set(null)">Cancel</button>
+          <button class="btn btn-success btn-sm" [disabled]="busy() || !payValid(e)" (click)="doPay()">
+            <span *ngIf="busy()" class="loading loading-spinner loading-sm"></span> Record payment
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button type="button" (click)="paying.set(null)">close</button></form>
+    </dialog>
   `,
 })
 export class ExpensesComponent implements OnInit {
@@ -283,6 +369,9 @@ export class ExpensesComponent implements OnInit {
   branchFilterModel: 'ALL' | 'NONE' | string = 'ALL';
   staffFilter = signal<'ALL' | string>('ALL');
   staffFilterModel: 'ALL' | string = 'ALL';
+  // 'CREDIT' = any unpaid balance (UNPAID + PARTIAL); the rest map to a single status.
+  statusFilter = signal<'ALL' | 'CREDIT' | 'PAID' | 'PARTIAL' | 'UNPAID'>('ALL');
+  statusFilterModel: 'ALL' | 'CREDIT' | 'PAID' | 'PARTIAL' | 'UNPAID' = 'ALL';
 
   // Date range — preset drives from/to; 'CUSTOM' lets the user pick freely.
   datePreset = signal<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'LAST_3_MONTHS' | 'THIS_YEAR' | 'CUSTOM'>('ALL');
@@ -308,6 +397,10 @@ export class ExpensesComponent implements OnInit {
   deleting = signal<Expense | null>(null);
   form: CreateExpenseDto = this.blankForm();
 
+  // pay-a-credit-expense modal
+  paying = signal<Expense | null>(null);
+  payForm: PayExpenseDto = { amount: 0, paymentMethod: '', paidDate: '' };
+
   // pagination
   page = signal(1);
   pageSize = 12;
@@ -317,6 +410,7 @@ export class ExpensesComponent implements OnInit {
     const cf = this.categoryFilter();
     const bf = this.branchFilter();
     const sf = this.staffFilter();
+    const pf = this.statusFilter();
     const from = this.fromDate() ? new Date(this.fromDate() + 'T00:00:00').getTime() : null;
     const to = this.toDate() ? new Date(this.toDate() + 'T23:59:59.999').getTime() : null;
     return this.data().filter((e) => {
@@ -324,6 +418,8 @@ export class ExpensesComponent implements OnInit {
       if (bf === 'NONE' && e.branchId) return false;
       if (bf !== 'ALL' && bf !== 'NONE' && e.branchId !== bf) return false;
       if (sf !== 'ALL' && e.staffId !== sf) return false;
+      if (pf === 'CREDIT' && e.paymentStatus === 'PAID') return false;
+      if (pf !== 'ALL' && pf !== 'CREDIT' && e.paymentStatus !== pf) return false;
       const t = new Date(e.expenseDate).getTime();
       if (from !== null && t < from) return false;
       if (to !== null && t > to) return false;
@@ -337,6 +433,7 @@ export class ExpensesComponent implements OnInit {
   });
 
   filteredTotal = computed(() => this.filtered().reduce((sum, e) => sum + Number(e.amount ?? 0), 0));
+  filteredOutstanding = computed(() => this.filtered().reduce((sum, e) => sum + Number(e.outstanding ?? 0), 0));
   totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
   paged = computed(() => {
     const p = Math.min(this.page(), this.totalPages());
@@ -360,6 +457,7 @@ export class ExpensesComponent implements OnInit {
   onCategoryFilter(v: CategoryFilter) { this.categoryFilter.set(v); this.page.set(1); }
   onBranchFilter(v: 'ALL' | 'NONE' | string) { this.branchFilter.set(v); this.page.set(1); }
   onStaffFilter(v: 'ALL' | string) { this.staffFilter.set(v); this.page.set(1); }
+  onStatusFilter(v: 'ALL' | 'CREDIT' | 'PAID' | 'PARTIAL' | 'UNPAID') { this.statusFilter.set(v); this.page.set(1); }
 
   setFrom(v: string) { this.fromDate.set(v); this.page.set(1); }
   setTo(v: string) { this.toDate.set(v); this.page.set(1); }
@@ -384,7 +482,7 @@ export class ExpensesComponent implements OnInit {
   exportCsv() {
     const rows = this.filtered();
     if (!rows.length) return;
-    const headers = ['Date', 'Title', 'Category', 'Branch', 'Staff', 'Vendor', 'Method', 'Amount', 'Notes'];
+    const headers = ['Date', 'Title', 'Category', 'Branch', 'Staff', 'Vendor', 'Method', 'Status', 'Amount', 'Paid', 'Outstanding', 'Due date', 'Notes'];
     const esc = (v: unknown) => {
       const s = v == null ? '' : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -397,11 +495,16 @@ export class ExpensesComponent implements OnInit {
       e.staff?.fullName ?? '',
       e.vendor ?? '',
       e.paymentMethod ?? '',
+      this.statusLabel(e),
       e.amount,
+      e.paidAmount,
+      e.outstanding,
+      e.dueDate ? new Date(e.dueDate).toLocaleDateString('en-IN') : '',
       e.notes ?? '',
     ].map(esc).join(','));
     const total = rows.reduce((s, e) => s + Number(e.amount ?? 0), 0);
-    body.push(['', '', '', '', '', '', 'TOTAL', total, ''].map(esc).join(','));
+    const totalOut = rows.reduce((s, e) => s + Number(e.outstanding ?? 0), 0);
+    body.push(['', '', '', '', '', '', '', 'TOTAL', total, '', totalOut, '', ''].map(esc).join(','));
 
     const csv = '﻿' + [headers.join(','), ...body].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -428,6 +531,50 @@ export class ExpensesComponent implements OnInit {
   categoryLabel(c: ExpenseCategory): string { return this.categories.find((x) => x.value === c)?.label ?? c; }
   categoryIcon(c: ExpenseCategory): string { return this.categories.find((x) => x.value === c)?.icon ?? '🧾'; }
 
+  // ----- credit / payment status -----
+  statusLabel(e: Expense): string {
+    if (e.paymentStatus === 'PAID') return 'Paid';
+    if (e.paymentStatus === 'PARTIAL') return 'Part-paid';
+    return 'Unpaid';
+  }
+  statusBadgeClass(e: Expense): string {
+    if (e.paymentStatus === 'PAID') return 'badge-success badge-outline';
+    if (e.paymentStatus === 'PARTIAL') return 'badge-warning';
+    return 'badge-error';
+  }
+  /** Live outstanding shown beside the "paid up-front" field in the editor. */
+  creditOutstanding(): number {
+    return Math.max(0, (Number(this.form.amount) || 0) - (Number(this.form.paidAmount) || 0));
+  }
+  /** When credit is switched off, the expense is paid in full — reset the up-front amount. */
+  onCreditToggle(on: boolean) {
+    if (!on) { this.form.paidAmount = 0; this.form.dueDate = ''; }
+  }
+
+  // ----- pay a credit expense -----
+  openPay(e: Expense) {
+    this.paying.set(e);
+    this.payForm = { amount: e.outstanding, paymentMethod: e.paymentMethod ?? '', paidDate: this.todayIso() };
+    this.blur();
+  }
+  payValid(e: Expense): boolean {
+    const a = Number(this.payForm.amount);
+    return a > 0 && a <= e.outstanding + 0.001;
+  }
+  doPay() {
+    const e = this.paying(); if (!e || !this.payValid(e)) return;
+    const payload: PayExpenseDto = {
+      amount: Number(this.payForm.amount),
+      paymentMethod: this.payForm.paymentMethod || undefined,
+      paidDate: this.payForm.paidDate || undefined,
+    };
+    this.busy.set(true);
+    this.api.pay(e.id, payload).subscribe({
+      next: () => { this.toast.success('Payment recorded'); this.afterAction(() => this.paying.set(null)); },
+      error: (err) => this.fail(err, 'Could not record payment'),
+    });
+  }
+
   // ----- editor -----
   openCreate() {
     this.editingId.set(null);
@@ -447,6 +594,9 @@ export class ExpensesComponent implements OnInit {
       vendor: e.vendor ?? '',
       staffId: e.staffId ?? '',
       notes: e.notes ?? '',
+      onCredit: e.paymentStatus !== 'PAID',
+      paidAmount: e.paidAmount ?? 0,
+      dueDate: (e.dueDate ?? '').slice(0, 10),
     };
     this.editorOpen.set(true);
     this.blur();
@@ -472,6 +622,10 @@ export class ExpensesComponent implements OnInit {
       // On edit, send '' so the API clears a previously-set attribution.
       staffId: this.form.staffId || (id ? '' : undefined),
       notes: this.form.notes?.trim() || undefined,
+      onCredit: !!this.form.onCredit,
+      paidAmount: this.form.onCredit ? Math.min(Number(this.form.paidAmount) || 0, Number(this.form.amount)) : undefined,
+      // On edit, send '' to clear a due date the API previously had; on create omit when unset.
+      dueDate: this.form.onCredit ? (this.form.dueDate || (id ? '' : undefined)) : (id ? '' : undefined),
     };
     this.busy.set(true);
     const req = id ? this.api.update(id, payload) : this.api.create(payload);
@@ -510,6 +664,7 @@ export class ExpensesComponent implements OnInit {
     return {
       title: '', category: 'MISC', amount: 0, expenseDate: this.todayIso(),
       branchId: '', paymentMethod: '', vendor: '', staffId: '', notes: '',
+      onCredit: false, paidAmount: 0, dueDate: '',
     };
   }
   private blur() { (document.activeElement as HTMLElement | null)?.blur(); }
