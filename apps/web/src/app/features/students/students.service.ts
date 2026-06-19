@@ -17,6 +17,9 @@ export interface ActiveSeatInfo {
 
 export type StudentRow = Student & { activeSeat: ActiveSeatInfo | null };
 
+export type BalanceAction = 'CARRY' | 'CLEAR';
+export type ReactivateStudentDto = Partial<CreateStudentDto> & { balanceAction?: BalanceAction };
+
 export interface ListStudentsQuery {
   page?: number;
   limit?: number;
@@ -48,6 +51,18 @@ export class StudentsApiService {
 
   get(id: string) { return this.http.get<Student>(`${this.base}/${id}`); }
   create(dto: CreateStudentDto) { return this.http.post<Student>(this.base, dto); }
+
+  /** Search previously-left students by name/email/phone/code (for the returning-student lookup). */
+  findReactivatable(search: string) {
+    return this.http.get<StudentRow[]>(`${this.base}/reactivatable`, {
+      params: new HttpParams().set('search', search),
+    });
+  }
+
+  /** Reactivate a left student, optionally updating details and choosing the balance action. */
+  reactivate(id: string, dto: ReactivateStudentDto) {
+    return this.http.post<Student>(`${this.base}/${id}/reactivate`, dto);
+  }
   update(id: string, dto: UpdateStudentDto) { return this.http.patch<Student>(`${this.base}/${id}`, dto); }
   remove(id: string) { return this.http.delete(`${this.base}/${id}`); }
   resetPassword(id: string, newPassword?: string) {

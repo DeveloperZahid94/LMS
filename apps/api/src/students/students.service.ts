@@ -6,6 +6,7 @@ import { TenantContextService } from '../tenant/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { ReactivateStudentDto } from './dto/reactivate-student.dto';
 import { ListStudentsDto } from './dto/list-students.dto';
 import { SettleBalanceDto } from './dto/settle-balance.dto';
 import { BalanceService } from '../balance/balance.service';
@@ -40,7 +41,9 @@ export class StudentsService {
 
     const where: any = { tenantId };
     if (query.branchId) where.branchId = query.branchId;
+    // Left (soft-deleted) students are hidden from normal lists unless explicitly requested.
     if (query.status) where.status = query.status;
+    else where.status = { not: 'LEFT' };
     if (query.notAllocated) {
       // Exclude students who hold any TEMPORARY or CONFIRMED seat allocation.
       where.seatAssignments = { none: { status: { in: ['TEMPORARY', 'CONFIRMED'] } } };
@@ -212,18 +215,122 @@ export class StudentsService {
     return updated;
   }
 
+  /**
+   * Soft delete: the student "left". We keep the record + full history (so they can be
+   * reactivated later) but mark them LEFT, stamp leftAt, and END every active
+   * accommodation so their seat/bed/tiffin frees up immediately. The stored
+   * outstandingBalance is intentionally left frozen at its leaving value so it can be
+   * surfaced (carry-forward / clear) on reactivation — hence no recompute here.
+   */
   async remove(id: string) {
     const existing = await this.findOne(id);
-    await this.prisma.student.delete({ where: { id: existing.id } });
+    const tenantId = existing.tenantId;
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.seatAssignment.updateMany({
+        where: { tenantId, studentId: id, status: { in: ['TEMPORARY', 'CONFIRMED'] } },
+        data: { status: 'ENDED', endDate: now },
+      }),
+      (this.prisma as any).pgRoomAssignment.updateMany({
+        where: { tenantId, studentId: id, status: 'ACTIVE' },
+        data: { status: 'ENDED', endDate: now },
+      }),
+      (this.prisma as any).tiffinSubscription.updateMany({
+        where: { tenantId, studentId: id, status: { in: ['ACTIVE', 'PAUSED'] } },
+        data: { status: 'ENDED', endDate: now },
+      }),
+      this.prisma.student.update({
+        where: { id },
+        data: { status: 'LEFT' as any, leftAt: now },
+      }),
+    ]);
+
     await this.audit.record({
-      tenantId: existing.tenantId,
+      tenantId,
       userId: this.tenantCtx.userId,
       action: 'DELETE_STUDENT',
       entity: 'students',
       entityId: existing.id,
-      diff: { before: existing },
+      diff: { before: existing, after: { status: 'LEFT', leftAt: now } },
     });
-    return { id: existing.id, deleted: true };
+    return { id: existing.id, deleted: true, status: 'LEFT' };
+  }
+
+  /**
+   * Find previously-left students matching a name/email/phone fragment, for the
+   * "returning student?" lookup on the registration form. Only LEFT students.
+   */
+  async findReactivatable(search: string) {
+    const tenantId = this.tenantCtx.tenantId;
+    const term = (search ?? '').trim();
+    if (term.length < 2) return [];
+    const rows = await this.prisma.student.findMany({
+      where: {
+        tenantId,
+        status: 'LEFT' as any,
+        OR: [
+          { fullName: { contains: term, mode: 'insensitive' } },
+          { phone: { contains: term } },
+          { email: { contains: term, mode: 'insensitive' } },
+          { code: { contains: term, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { leftAt: 'desc' },
+      take: 10,
+    });
+    return rows.map((s) => ({ ...s, outstandingBalance: Number((s as any).outstandingBalance ?? 0) }));
+  }
+
+  /**
+   * Reactivate a left student: flip status back to ACTIVE, clear leftAt, optionally
+   * update changed personal details, and settle the old balance per balanceAction
+   * (CARRY keeps the frozen due, CLEAR zeroes it). Accommodation is added separately
+   * by the caller — same as a fresh registration. Opening balance is handled exactly
+   * like create(): set directly, then recompute takes over once accommodation is added.
+   */
+  async reactivate(id: string, dto: ReactivateStudentDto) {
+    const tenantId = this.tenantCtx.tenantId;
+    const existing = await this.prisma.student.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException('Student not found');
+    if (existing.status !== 'LEFT') {
+      throw new BadRequestException('Only a student who has left can be reactivated');
+    }
+
+    const data: any = { status: 'ACTIVE', leftAt: null };
+    const fields: (keyof ReactivateStudentDto)[] = [
+      'branchId', 'fullName', 'email', 'phone', 'gender',
+      'aadhaarNumber', 'voterId', 'fatherName', 'motherName', 'emergencyContact',
+      'permanentAddress', 'temporaryAddress', 'examTarget',
+      'photoUrl', 'idProofUrl', 'aadhaarFrontUrl', 'aadhaarBackUrl', 'voterIdUrl',
+    ];
+    for (const f of fields) {
+      if (dto[f] !== undefined) data[f] = dto[f];
+    }
+    if (dto.dateOfBirth !== undefined) data.dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : null;
+    if (dto.expiresAt !== undefined) data.expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+    if (dto.balanceAction === 'CLEAR') data.outstandingBalance = 0;
+
+    let updated;
+    try {
+      updated = await this.prisma.student.update({ where: { id }, data });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const msg = describeUniqueTarget((err.meta as any)?.target) ?? 'Duplicate record';
+        throw new ConflictException(msg);
+      }
+      throw err;
+    }
+
+    await this.audit.record({
+      tenantId,
+      userId: this.tenantCtx.userId,
+      action: 'REACTIVATE_STUDENT',
+      entity: 'students',
+      entityId: id,
+      diff: { before: existing, after: updated, balanceAction: dto.balanceAction ?? 'CARRY' },
+    });
+    return { ...updated, outstandingBalance: Number((updated as any).outstandingBalance ?? 0) };
   }
 
   /**

@@ -9,6 +9,8 @@ export enum StudentStatus {
   INACTIVE = 'INACTIVE',
   SUSPENDED = 'SUSPENDED',
   PENDING = 'PENDING',
+  /** Soft-deleted: the student left. Record + history retained; reactivatable. */
+  LEFT = 'LEFT',
 }
 
 /** Common Indian exam targets — purely informational; free-form on the API. */
@@ -50,6 +52,7 @@ export interface Student {
 
   joinedAt: string;
   expiresAt: string | null;
+  leftAt: string | null;
   outstandingBalance: number;
 
   qrCode: string;

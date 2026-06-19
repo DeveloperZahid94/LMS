@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators, FormGroup } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of, switchMap } from 'rxjs';
-import { StudentsApiService } from './students.service';
+import { StudentsApiService, StudentRow, BalanceAction } from './students.service';
 import { BranchesApiService, Branch } from './branches.service';
 import { ExamTargetsApiService, ExamTarget } from './exam-targets.service';
 import { FeatureKey, Gender, PaymentMethod, Shift, StudentStatus } from '@lms/shared';
@@ -77,6 +77,68 @@ interface StepDef {
 
           <!-- ============================== STEP 1: PERSONAL INFO ============================== -->
           <ng-container *ngIf="currentStep() === 0">
+
+            <!-- RETURNING STUDENT LOOKUP (new registrations only) -->
+            <div *ngIf="!id()" class="mb-6">
+              <div *ngIf="!reactivateId()" class="rounded-xl border border-base-300 bg-base-200/40 p-4">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-lg">🔄</span>
+                  <div>
+                    <div class="font-medium text-sm">Returning student?</div>
+                    <div class="text-xs opacity-60">Search someone who left earlier and reactivate them instead of registering again.</div>
+                  </div>
+                </div>
+                <label class="input input-bordered flex items-center gap-2">
+                  <span class="opacity-50">🔍</span>
+                  <input class="grow" [(ngModel)]="reactSearchTerm" [ngModelOptions]="{ standalone: true }"
+                         (ngModelChange)="onReturningSearch()" placeholder="Search left students by name, phone, email or ID…" />
+                  <span *ngIf="reactSearching()" class="loading loading-spinner loading-xs"></span>
+                </label>
+                <ul *ngIf="reactResults().length" class="menu bg-base-100 rounded-box mt-2 border border-base-300 p-1">
+                  <li *ngFor="let s of reactResults()">
+                    <a (click)="selectReturning(s)" class="flex items-center justify-between gap-2">
+                      <span class="truncate">
+                        <span class="font-medium">{{ s.fullName }}</span>
+                        <span class="opacity-60 text-xs"> · {{ s.code }} · {{ s.phone }}</span>
+                      </span>
+                      <span class="text-xs opacity-60 whitespace-nowrap">left {{ s.leftAt ? (s.leftAt | date:'dd MMM yy') : '—' }}</span>
+                    </a>
+                  </li>
+                </ul>
+                <div *ngIf="reactSearchTerm.trim().length >= 2 && !reactSearching() && !reactResults().length"
+                     class="text-xs opacity-50 mt-2">No left students match — just fill the form to register someone new.</div>
+              </div>
+
+              <!-- REACTIVATION BANNER + old-dues choice -->
+              <div *ngIf="reactivateId() && reactivateMatch() as m" class="rounded-xl border border-warning bg-warning/10 p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-lg">🔄</span>
+                    <div>
+                      <div class="font-medium text-sm">Reactivating {{ m.fullName }} ({{ m.code }})</div>
+                      <div class="text-xs opacity-70">Left {{ m.leftAt ? (m.leftAt | date:'dd MMM yyyy') : '—' }} · details pre-filled below. Just add the new accommodation — the rest stays the same.</div>
+                    </div>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-xs" (click)="clearReactivation()">✕ Cancel</button>
+                </div>
+                <div *ngIf="m.outstandingBalance > 0" class="mt-3 pt-3 border-t border-warning/30">
+                  <div class="text-sm font-medium mb-1.5">Old dues: <span class="text-error">₹{{ m.outstandingBalance | number }}</span> outstanding from before — what should happen?</div>
+                  <div class="join">
+                    <input type="radio" name="balAct" class="join-item btn btn-sm" aria-label="Carry forward" [checked]="balanceAction() === 'CARRY'" (change)="balanceAction.set('CARRY')" />
+                    <input type="radio" name="balAct" class="join-item btn btn-sm" aria-label="Clear / waive" [checked]="balanceAction() === 'CLEAR'" (change)="balanceAction.set('CLEAR')" />
+                  </div>
+                  <div class="text-xs opacity-70 mt-1.5">
+                    {{ balanceAction() === 'CARRY'
+                        ? 'The ₹' + (m.outstandingBalance | number) + ' due carries over to the reactivated account.'
+                        : 'The old due is waived — the account starts clean at ₹0.' }}
+                  </div>
+                </div>
+                <div *ngIf="m.outstandingBalance < 0" class="mt-3 pt-3 border-t border-warning/30 text-xs opacity-70">
+                  Had an advance/credit of ₹{{ -m.outstandingBalance | number }} from before — it's carried forward.
+                </div>
+              </div>
+            </div>
+
             <div formGroupName="personal" class="space-y-7">
 
               <!-- ---- Basic details ---- -->
@@ -999,6 +1061,15 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   currentStep = signal(0);
   sameAddress = signal(false);
 
+  // ----- returning-student reactivation (create mode) -----
+  reactSearchTerm = '';
+  private reactTimer: any = null;
+  reactSearching = signal(false);
+  reactResults = signal<StudentRow[]>([]);
+  reactivateId = signal<string | null>(null);
+  reactivateMatch = signal<StudentRow | null>(null);
+  balanceAction = signal<BalanceAction>('CARRY');
+
   accomType = signal<AccomType | null>(null);
   /** Tiffin is an independent add-on: it can be on with any accommodation, or stand alone. */
   tiffinActive = signal(false);
@@ -1544,6 +1615,61 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   }
 
   // ----- Submit -----
+  /** Debounced lookup of previously-left students for the returning-student panel. */
+  onReturningSearch() {
+    const term = this.reactSearchTerm.trim();
+    if (this.reactTimer) clearTimeout(this.reactTimer);
+    if (term.length < 2) { this.reactResults.set([]); this.reactSearching.set(false); return; }
+    this.reactSearching.set(true);
+    this.reactTimer = setTimeout(() => {
+      this.api.findReactivatable(term).subscribe({
+        next: (rows) => { this.reactResults.set(rows); this.reactSearching.set(false); },
+        error: () => { this.reactResults.set([]); this.reactSearching.set(false); },
+      });
+    }, 300);
+  }
+
+  /** Pick a left student → enter reactivation mode and pre-fill their saved details. */
+  selectReturning(s: StudentRow) {
+    this.reactivateId.set(s.id);
+    this.reactivateMatch.set(s);
+    this.reactResults.set([]);
+    this.reactSearchTerm = '';
+    this.balanceAction.set('CARRY');
+    this.personalGroup.patchValue({
+      fullName: s.fullName,
+      phone: s.phone,
+      email: s.email ?? '',
+      dateOfBirth: s.dateOfBirth ? s.dateOfBirth.slice(0, 10) : '',
+      gender: s.gender ?? null,
+      branchId: s.branchId,
+      examTarget: s.examTarget ?? null,
+      aadhaarNumber: s.aadhaarNumber ?? '',
+      voterId: s.voterId ?? '',
+      fatherName: s.fatherName ?? '',
+      motherName: s.motherName ?? '',
+      emergencyContact: s.emergencyContact ?? '',
+      permanentAddress: s.permanentAddress ?? '',
+      temporaryAddress: s.temporaryAddress ?? '',
+      // expiresAt intentionally left blank — it's a fresh membership term.
+    });
+    this.docsGroup.patchValue({
+      photoUrl: s.photoUrl ?? null,
+      idProofUrl: s.idProofUrl ?? null,
+      aadhaarFrontUrl: s.aadhaarFrontUrl ?? null,
+      aadhaarBackUrl: s.aadhaarBackUrl ?? null,
+      voterIdUrl: s.voterIdUrl ?? null,
+    });
+    this.toast.info(`Reactivating ${s.fullName} — details pre-filled.`);
+  }
+
+  /** Back out of reactivation and register fresh instead. */
+  clearReactivation() {
+    this.reactivateId.set(null);
+    this.reactivateMatch.set(null);
+    this.balanceAction.set('CARRY');
+  }
+
   submit(asDraft = false) {
     if (this.id()) return this.completeDraft(asDraft);
     if (!this.personalGroup.valid) {
@@ -1586,19 +1712,24 @@ export class StudentFormComponent implements OnInit, OnDestroy {
       outstandingBalance: asDraft ? undefined : this.accountOpeningBalance(),
     };
 
-    this.api.create(studentPayload).pipe(
+    const rid = this.reactivateId();
+    const save$ = rid
+      ? this.api.reactivate(rid, { ...studentPayload, balanceAction: this.balanceAction() })
+      : this.api.create(studentPayload);
+
+    save$.pipe(
       switchMap((s: any) => {
-        if (asDraft) return of({ student: s, accomResults: [], paymentResults: [] });
+        if (asDraft && !rid) return of({ student: s, accomResults: [], paymentResults: [] });
         return this.chainAccommodationsAndPayments(s);
       }),
     ).subscribe({
       next: (r: any) => {
         const errs = (r.accomResults ?? []).concat(r.paymentResults ?? []).filter((x: any) => x?.error);
+        const verb = rid ? 'Reactivated' : (asDraft ? 'Saved draft for' : 'Registered');
         if (errs.length > 0) {
-          this.toast.warning(`Student ${r.student.fullName} created, but: ${errs.map((e: any) => e.error).join(' · ')}`);
+          this.toast.warning(`${verb} ${r.student.fullName}, but: ${errs.map((e: any) => e.error).join(' · ')}`);
         } else {
-          this.toast.success(asDraft ? `Saved draft for ${r.student.fullName} (${r.student.code})`
-                                     : `Registered ${r.student.fullName} (${r.student.code})`);
+          this.toast.success(`${verb} ${r.student.fullName} (${r.student.code})`);
         }
         this.router.navigate(['/students']);
       },

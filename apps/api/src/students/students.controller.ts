@@ -6,6 +6,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { ReactivateStudentDto } from './dto/reactivate-student.dto';
 import { ListStudentsDto } from './dto/list-students.dto';
 import { SettleBalanceDto } from './dto/settle-balance.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -23,6 +24,13 @@ export class StudentsController {
     return this.service.list(query);
   }
 
+  /** Lookup previously-left students (for the "returning student?" search). Declared before :id. */
+  @Roles(UserRole.BRANCH_ADMIN)
+  @Get('reactivatable')
+  reactivatable(@Query('search') search: string) {
+    return this.service.findReactivatable(search ?? '');
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
@@ -38,6 +46,12 @@ export class StudentsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateStudentDto) {
     return this.service.update(id, dto);
+  }
+
+  @Roles(UserRole.BRANCH_ADMIN)
+  @Post(':id/reactivate')
+  reactivate(@Param('id') id: string, @Body() dto: ReactivateStudentDto) {
+    return this.service.reactivate(id, dto);
   }
 
   @Roles(UserRole.CLIENT_ADMIN)

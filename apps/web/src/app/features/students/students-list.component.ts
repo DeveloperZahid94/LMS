@@ -315,8 +315,8 @@ const AVATAR_PALETTE = [
     <!-- =============================== DELETE DIALOG =============================== -->
     <dialog class="modal" [class.modal-open]="!!deleting()">
       <div class="modal-box" *ngIf="deleting() as d">
-        <h3 class="font-bold text-lg">Delete student?</h3>
-        <p class="py-2">This will permanently remove <strong>{{ d.fullName }}</strong> ({{ d.code }}) along with related attendance and payments via cascade. This cannot be undone.</p>
+        <h3 class="font-bold text-lg">Remove student?</h3>
+        <p class="py-2">This marks <strong>{{ d.fullName }}</strong> ({{ d.code }}) as <strong>left</strong> and frees their seat/bed. Their record &amp; history are kept, so if they return you can search and reactivate them instead of registering again.</p>
         <div class="modal-action">
           <button class="btn btn-ghost" (click)="deleting.set(null)">Cancel</button>
           <button class="btn btn-error" (click)="doDelete()" [disabled]="deleting()?.id === deletingId()">
@@ -449,7 +449,7 @@ export class StudentsListComponent implements OnInit {
     this.deletingId.set(s.id);
     this.api.remove(s.id).subscribe({
       next: () => {
-        this.toast.success(`Deleted ${s.fullName}`);
+        this.toast.success(`${s.fullName} marked as left`);
         this.deleting.set(null);
         this.deletingId.set(null);
         this.reload();

@@ -205,6 +205,7 @@ model Student {
 
   joinedAt           DateTime @default(now())   // registration date
   expiresAt          DateTime?                  // membership/plan expiry
+  leftAt             DateTime?                  // set when soft-deleted (status LEFT); cleared on reactivation
   outstandingBalance Decimal  @default(0) @db.Decimal(10, 2) // unpaid balance from part payments
 
   qrCode             String   @unique @default(uuid()) // scanned for attendance
@@ -238,6 +239,7 @@ enum StudentStatus {
   INACTIVE
   SUSPENDED
   PENDING
+  LEFT      // soft-deleted: student left; record + history retained for reactivation
 }
 
 model Seat {
