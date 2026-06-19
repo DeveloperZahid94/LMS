@@ -118,6 +118,26 @@ export interface ProfitLoss {
   byCategory: ExpenseCategoryRow[];
 }
 
+export interface ExpenseDetailRow {
+  id: string;
+  expenseDate: string;
+  title: string;
+  category: string;
+  branchName: string | null;
+  staffName: string | null;
+  vendor: string | null;
+  amount: number;
+  paidAmount: number;
+  outstanding: number;
+  paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID';
+  dueDate: string | null;
+}
+
+export interface ExpenseDetail {
+  items: ExpenseDetailRow[];
+  totals: { amount: number; paid: number; outstanding: number; count: number };
+}
+
 export interface IncomeSourceRow {
   source: string;
   label: string;
@@ -176,6 +196,10 @@ export class ReportsApiService {
 
   incomeBySource(opts: RangeOpts) {
     return this.http.get<IncomeBySource>(`${this.base}/income-sources`, { params: this.params(opts) });
+  }
+
+  expenseDetail(opts: RangeOpts) {
+    return this.http.get<ExpenseDetail>(`${this.base}/expense-detail`, { params: this.params(opts) });
   }
 
   private params(opts: RangeOpts): HttpParams {

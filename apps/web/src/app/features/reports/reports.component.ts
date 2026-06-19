@@ -4,15 +4,15 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import {
-  AgingBucket, AgingResponse, Bucket, ExpenseCategoryRow, IncomeBySource, IncomeSourceRow,
-  MethodBreakdownRow, PlSeriesPoint, ProfitLoss, ReportsApiService, ReportsSummary,
-  StudentStatusFilter, StudentSummaryRow, TimeseriesPoint,
+  AgingBucket, AgingResponse, Bucket, ExpenseCategoryRow, ExpenseDetail, ExpenseDetailRow,
+  IncomeBySource, IncomeSourceRow, MethodBreakdownRow, PlSeriesPoint, ProfitLoss,
+  ReportsApiService, ReportsSummary, StudentStatusFilter, StudentSummaryRow, TimeseriesPoint,
 } from './reports.service';
 import { BranchesApiService, Branch } from '../students/branches.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportColumn, exportCsv, exportPdf, fmtDate } from '../../shared/utils/export.util';
 
-type TabKey = 'period' | 'student' | 'method' | 'aging' | 'expense' | 'pl' | 'source';
+type TabKey = 'period' | 'student' | 'method' | 'aging' | 'expense' | 'expenseDetail' | 'pl' | 'source';
 type Preset = 'today' | 'yesterday' | 'week' | 'month' | 'last30' | 'last90' | 'ytd' | 'custom';
 type SortField = 'name' | 'expected' | 'paid' | 'balance' | 'last' | 'status';
 
@@ -128,6 +128,7 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
       <a role="tab" class="tab gap-1" [class.tab-active]="tab() === 'aging'"   (click)="tab.set('aging')">⏳ Aging</a>
       <a role="tab" class="tab gap-1" [class.tab-active]="tab() === 'pl'"      (click)="tab.set('pl')">📈 Income vs Expense</a>
       <a role="tab" class="tab gap-1" [class.tab-active]="tab() === 'expense'" (click)="tab.set('expense')">💸 Expenses</a>
+      <a role="tab" class="tab gap-1" [class.tab-active]="tab() === 'expenseDetail'" (click)="tab.set('expenseDetail')">📋 Expense detail</a>
       <a role="tab" class="tab gap-1" [class.tab-active]="tab() === 'source'"  (click)="tab.set('source')">🧩 Income by source</a>
     </div>
 
@@ -321,6 +322,50 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
           </tfoot>
         </table>
 
+        <!-- EXPENSE DETAIL (line items: incurred vs paid) -->
+        <table *ngSwitchCase="'expenseDetail'" class="table table-sm">
+          <thead class="bg-base-200 sticky top-0 z-10">
+            <tr class="text-xs uppercase tracking-wider">
+              <th>Date</th>
+              <th>Expense</th>
+              <th>Category</th>
+              <th>Branch</th>
+              <th>Tagged to</th>
+              <th class="text-right">Expense</th>
+              <th class="text-right">Paid</th>
+              <th class="text-right">Outstanding</th>
+            </tr>
+          </thead>
+          <tbody *ngIf="expenseDetail() as d">
+            <tr *ngFor="let e of d.items" class="hover">
+              <td class="whitespace-nowrap text-sm">{{ e.expenseDate | date:'dd MMM yyyy' }}</td>
+              <td>
+                <div class="font-medium">{{ e.title }}</div>
+                <div class="opacity-60 text-xs" *ngIf="e.vendor">{{ e.vendor }}</div>
+              </td>
+              <td><span class="badge badge-ghost badge-sm">{{ labelForCategory(e.category) }}</span></td>
+              <td class="text-sm">{{ e.branchName || '—' }}</td>
+              <td class="text-sm">{{ e.staffName || '—' }}</td>
+              <td class="text-right font-medium">₹{{ e.amount | number }}</td>
+              <td class="text-right text-success">₹{{ e.paidAmount | number }}</td>
+              <td class="text-right" [class.text-warning]="e.outstanding > 0" [class.opacity-50]="e.outstanding <= 0">
+                ₹{{ e.outstanding | number }}
+                <span *ngIf="e.outstanding > 0 && e.dueDate" class="block text-xs opacity-60">due {{ e.dueDate | date:'dd/MM/yy' }}</span>
+              </td>
+            </tr>
+            <tr *ngIf="d.items.length === 0 && !loading()"><td colspan="8" class="text-center opacity-60 py-10">No expenses recorded in this range.</td></tr>
+          </tbody>
+          <tbody *ngIf="!expenseDetail()"><tr><td colspan="8" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr></tbody>
+          <tfoot *ngIf="expenseDetail() as d" class="sticky bottom-0">
+            <tr class="bg-base-200 font-semibold">
+              <td colspan="5">{{ d.totals.count }} expense{{ d.totals.count === 1 ? '' : 's' }}</td>
+              <td class="text-right">₹{{ d.totals.amount | number }}</td>
+              <td class="text-right text-success">₹{{ d.totals.paid | number }}</td>
+              <td class="text-right text-warning">₹{{ d.totals.outstanding | number }}</td>
+            </tr>
+          </tfoot>
+        </table>
+
         <!-- INCOME BY SOURCE -->
         <table *ngSwitchCase="'source'" class="table">
           <thead class="bg-base-200 sticky top-0 z-10">
@@ -428,6 +473,7 @@ export class ReportsComponent implements OnInit {
   aging = signal<AgingResponse | null>(null);
   pl = signal<ProfitLoss | null>(null);
   incomeSources = signal<IncomeBySource | null>(null);
+  expenseDetail = signal<ExpenseDetail | null>(null);
 
   filteredStudents = computed(() => {
     const q = this.studentSearch.trim().toLowerCase();
@@ -474,6 +520,7 @@ export class ReportsComponent implements OnInit {
     this.tab() === 'method'  ? 'by-method' :
     this.tab() === 'pl'      ? 'income-vs-expense' :
     this.tab() === 'expense' ? 'expenses' :
+    this.tab() === 'expenseDetail' ? 'expense-detail' :
     this.tab() === 'source'  ? 'income-by-source' : 'aging',
   );
 
@@ -584,6 +631,7 @@ export class ReportsComponent implements OnInit {
       aging:    this.api.aging(this.branchFilter),
       pl:       this.api.profitLoss({ ...range, bucket: this.bucket() }),
       sources:  this.api.incomeBySource(range),
+      expenseDetail: this.api.expenseDetail(range),
     }).subscribe({
       next: (r) => {
         this.summary.set(r.summary);
@@ -593,6 +641,7 @@ export class ReportsComponent implements OnInit {
         this.aging.set(r.aging);
         this.pl.set(r.pl);
         this.incomeSources.set(r.sources);
+        this.expenseDetail.set(r.expenseDetail);
         this.lastRefreshed.set(new Date());
         this.loading.set(false);
       },
@@ -691,6 +740,21 @@ export class ReportsComponent implements OnInit {
         { header: 'Share %',      value: (c) => c.pctOfTotal },
       ];
       this.dispatch(kind, this.pl()?.byCategory ?? [], cols, 'Expenses by category', subtitle, 'expenses-by-category');
+    } else if (t === 'expenseDetail') {
+      const cols: ExportColumn<ExpenseDetailRow>[] = [
+        { header: 'Date',            value: (e) => fmtDate(e.expenseDate) },
+        { header: 'Expense',         value: (e) => e.title },
+        { header: 'Category',        value: (e) => this.labelForCategory(e.category) },
+        { header: 'Branch',          value: (e) => e.branchName ?? '' },
+        { header: 'Tagged to',       value: (e) => e.staffName ?? '' },
+        { header: 'Vendor',          value: (e) => e.vendor ?? '' },
+        { header: 'Expense (INR)',   value: (e) => e.amount },
+        { header: 'Paid (INR)',      value: (e) => e.paidAmount },
+        { header: 'Outstanding (INR)',value: (e) => e.outstanding },
+        { header: 'Status',          value: (e) => e.paymentStatus },
+        { header: 'Due date',        value: (e) => e.dueDate ? fmtDate(e.dueDate) : '' },
+      ];
+      this.dispatch(kind, this.expenseDetail()?.items ?? [], cols, 'Expense detail', subtitle, 'expense-detail');
     } else if (t === 'source') {
       const cols: ExportColumn<IncomeSourceRow>[] = [
         { header: 'Source',       value: (r) => r.label },

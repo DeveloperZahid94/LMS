@@ -57,6 +57,11 @@ export class ReportsController {
     });
   }
 
+  @Get('expense-detail')
+  expenseDetail(@Query() q: ReportsRangeDto) {
+    return this.service.expenseDetail(q);
+  }
+
   @Get('aging')
   aging(@Query('branchId') branchId?: string) {
     return this.service.aging({ branchId });

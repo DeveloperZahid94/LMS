@@ -382,6 +382,69 @@ export class ReportsService {
   }
 
   /**
+   * Itemised expense report for the range: one row per expense with what was incurred
+   * (amount) vs what's actually been paid (paidAmount) and the outstanding balance,
+   * plus the date, branch and the staff member it's tagged to. Newest first.
+   */
+  async expenseDetail(opts: { dateFrom: string; dateTo: string; branchId?: string }) {
+    const tenantId = this.tenantCtx.tenantId;
+    const rows = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        ...(opts.branchId && { branchId: opts.branchId }),
+        expenseDate: {
+          gte: new Date(opts.dateFrom + 'T00:00:00.000'),
+          lte: new Date(opts.dateTo + 'T23:59:59.999'),
+        },
+      },
+      orderBy: { expenseDate: 'desc' },
+      include: {
+        branch: { select: { name: true } },
+        staff: { select: { fullName: true } },
+      },
+    });
+
+    const items = rows.map((r) => {
+      const amount = Number(r.amount ?? 0);
+      const paid = Number(r.paidAmount ?? 0);
+      return {
+        id: r.id,
+        expenseDate: r.expenseDate.toISOString(),
+        title: r.title,
+        category: r.category as string,
+        branchName: r.branch?.name ?? null,
+        staffName: r.staff?.fullName ?? null,
+        vendor: r.vendor ?? null,
+        amount: round2(amount),
+        paidAmount: round2(paid),
+        outstanding: round2(amount - paid),
+        paymentStatus: r.paymentStatus as string,
+        dueDate: r.dueDate ? r.dueDate.toISOString() : null,
+      };
+    });
+
+    const totals = items.reduce(
+      (a, i) => {
+        a.amount += i.amount;
+        a.paid += i.paidAmount;
+        a.outstanding += i.outstanding;
+        return a;
+      },
+      { amount: 0, paid: 0, outstanding: 0 },
+    );
+
+    return {
+      items,
+      totals: {
+        amount: round2(totals.amount),
+        paid: round2(totals.paid),
+        outstanding: round2(totals.outstanding),
+        count: items.length,
+      },
+    };
+  }
+
+  /**
    * Income split by business line for the range, derived from PAID payment note tags:
    *   [Cabin…] → Cabin/Seat · [PG…] → PG Rooms · [Tiffin…] → Tiffin ·
    *   [Balance…]/[Advance…] → general account settlement · anything else → Other.
