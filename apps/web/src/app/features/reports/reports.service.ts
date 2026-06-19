@@ -118,6 +118,14 @@ export interface ProfitLoss {
   byCategory: ExpenseCategoryRow[];
 }
 
+export interface ExpensePaymentRow {
+  id: string;
+  amount: number;
+  paymentMethod: string | null;
+  notes: string | null;
+  paidDate: string;
+}
+
 export interface ExpenseDetailRow {
   id: string;
   expenseDate: string;
@@ -131,6 +139,7 @@ export interface ExpenseDetailRow {
   outstanding: number;
   paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID';
   dueDate: string | null;
+  payments: ExpensePaymentRow[];
 }
 
 export interface ExpenseDetail {

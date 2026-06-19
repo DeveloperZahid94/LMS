@@ -337,22 +337,44 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
             </tr>
           </thead>
           <tbody *ngIf="expenseDetail() as d">
-            <tr *ngFor="let e of d.items" class="hover">
-              <td class="whitespace-nowrap text-sm">{{ e.expenseDate | date:'dd MMM yyyy' }}</td>
-              <td>
-                <div class="font-medium">{{ e.title }}</div>
-                <div class="opacity-60 text-xs" *ngIf="e.vendor">{{ e.vendor }}</div>
-              </td>
-              <td><span class="badge badge-ghost badge-sm">{{ labelForCategory(e.category) }}</span></td>
-              <td class="text-sm">{{ e.branchName || '—' }}</td>
-              <td class="text-sm">{{ e.staffName || '—' }}</td>
-              <td class="text-right font-medium">₹{{ e.amount | number }}</td>
-              <td class="text-right text-success">₹{{ e.paidAmount | number }}</td>
-              <td class="text-right" [class.text-warning]="e.outstanding > 0" [class.opacity-50]="e.outstanding <= 0">
-                ₹{{ e.outstanding | number }}
-                <span *ngIf="e.outstanding > 0 && e.dueDate" class="block text-xs opacity-60">due {{ e.dueDate | date:'dd/MM/yy' }}</span>
-              </td>
-            </tr>
+            <ng-container *ngFor="let e of d.items">
+              <tr class="hover" [class.cursor-pointer]="e.payments.length" (click)="e.payments.length && toggleRow(e.id)">
+                <td class="whitespace-nowrap text-sm">
+                  <span class="inline-block w-3 opacity-60">{{ e.payments.length ? (isExpanded(e.id) ? '▾' : '▸') : '' }}</span>
+                  {{ e.expenseDate | date:'dd MMM yyyy' }}
+                </td>
+                <td>
+                  <div class="font-medium">{{ e.title }}</div>
+                  <div class="opacity-60 text-xs" *ngIf="e.vendor">{{ e.vendor }}</div>
+                </td>
+                <td><span class="badge badge-ghost badge-sm">{{ labelForCategory(e.category) }}</span></td>
+                <td class="text-sm">{{ e.branchName || '—' }}</td>
+                <td class="text-sm">{{ e.staffName || '—' }}</td>
+                <td class="text-right font-medium">₹{{ e.amount | number }}</td>
+                <td class="text-right text-success">
+                  ₹{{ e.paidAmount | number }}
+                  <span *ngIf="e.payments.length" class="block text-xs opacity-60">{{ e.payments.length }} payment{{ e.payments.length === 1 ? '' : 's' }}</span>
+                </td>
+                <td class="text-right" [class.text-warning]="e.outstanding > 0" [class.opacity-50]="e.outstanding <= 0">
+                  ₹{{ e.outstanding | number }}
+                  <span *ngIf="e.outstanding > 0 && e.dueDate" class="block text-xs opacity-60">due {{ e.dueDate | date:'dd/MM/yy' }}</span>
+                </td>
+              </tr>
+              <!-- PAYMENT BREAKDOWN (one row per partial/full payment) -->
+              <ng-container *ngIf="isExpanded(e.id)">
+                <tr *ngFor="let p of e.payments; let i = index" class="bg-base-200/40 text-sm">
+                  <td class="text-xs opacity-70 whitespace-nowrap pl-6">{{ p.paidDate | date:'dd MMM yyyy' }}</td>
+                  <td colspan="3" class="text-xs">
+                    <span class="opacity-60">↳ Payment {{ i + 1 }} of {{ e.payments.length }}</span>
+                    <span *ngIf="p.notes" class="opacity-80"> — {{ p.notes }}</span>
+                  </td>
+                  <td><span class="badge badge-ghost badge-xs" *ngIf="p.paymentMethod">{{ p.paymentMethod }}</span></td>
+                  <td class="text-right opacity-30">—</td>
+                  <td class="text-right text-success">₹{{ p.amount | number }}</td>
+                  <td></td>
+                </tr>
+              </ng-container>
+            </ng-container>
             <tr *ngIf="d.items.length === 0 && !loading()"><td colspan="8" class="text-center opacity-60 py-10">No expenses recorded in this range.</td></tr>
           </tbody>
           <tbody *ngIf="!expenseDetail()"><tr><td colspan="8" class="text-center py-6"><span class="loading loading-spinner loading-md"></span></td></tr></tbody>
@@ -474,6 +496,7 @@ export class ReportsComponent implements OnInit {
   pl = signal<ProfitLoss | null>(null);
   incomeSources = signal<IncomeBySource | null>(null);
   expenseDetail = signal<ExpenseDetail | null>(null);
+  expandedRows = signal<Set<string>>(new Set());
 
   filteredStudents = computed(() => {
     const q = this.studentSearch.trim().toLowerCase();
@@ -679,6 +702,16 @@ export class ReportsComponent implements OnInit {
 
   labelForCategory(c: string): string {
     return EXPENSE_CATEGORY_LABEL[c] ?? c;
+  }
+
+  /** Expand/collapse an expense's payment breakdown in the detail report. */
+  toggleRow(id: string) {
+    const next = new Set(this.expandedRows());
+    next.has(id) ? next.delete(id) : next.add(id);
+    this.expandedRows.set(next);
+  }
+  isExpanded(id: string): boolean {
+    return this.expandedRows().has(id);
   }
 
   doExport(kind: 'csv' | 'pdf') {

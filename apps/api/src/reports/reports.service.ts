@@ -401,6 +401,7 @@ export class ReportsService {
       include: {
         branch: { select: { name: true } },
         staff: { select: { fullName: true } },
+        payments: { orderBy: { paidDate: 'asc' } },
       },
     });
 
@@ -420,6 +421,14 @@ export class ReportsService {
         outstanding: round2(amount - paid),
         paymentStatus: r.paymentStatus as string,
         dueDate: r.dueDate ? r.dueDate.toISOString() : null,
+        // Itemised payment breakdown — each (possibly partial) payment with its date & details.
+        payments: (r.payments ?? []).map((p: any) => ({
+          id: p.id,
+          amount: round2(Number(p.amount ?? 0)),
+          paymentMethod: p.paymentMethod ?? null,
+          notes: p.notes ?? null,
+          paidDate: p.paidDate.toISOString(),
+        })),
       };
     });
 
