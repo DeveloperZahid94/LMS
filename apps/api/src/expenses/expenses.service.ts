@@ -42,6 +42,7 @@ export class ExpensesService {
       include: {
         branch: { select: { id: true, name: true, code: true } },
         staff: { select: { id: true, fullName: true, role: true } },
+        payments: { orderBy: { paidDate: 'asc' } },
       },
     });
     return rows.map((r) => this.shape(r));
@@ -105,6 +106,7 @@ export class ExpensesService {
       include: {
         branch: { select: { id: true, name: true, code: true } },
         staff: { select: { id: true, fullName: true, role: true } },
+        payments: { orderBy: { paidDate: 'asc' } },
       },
     });
     if (!row) throw new NotFoundException('Expense not found');
@@ -124,6 +126,7 @@ export class ExpensesService {
     const paidAmount = dto.onCredit ? Math.min(dto.paidAmount ?? 0, dto.amount) : dto.amount;
     const paymentStatus = deriveStatus(dto.amount, paidAmount);
 
+    const expenseDate = dto.expenseDate ? new Date(dto.expenseDate) : new Date();
     const created = await this.prisma.expense.create({
       data: {
         tenantId,
@@ -131,7 +134,7 @@ export class ExpensesService {
         category: dto.category as any,
         title: dto.title.trim(),
         amount: dto.amount,
-        expenseDate: dto.expenseDate ? new Date(dto.expenseDate) : new Date(),
+        expenseDate,
         paymentMethod: dto.paymentMethod ?? null,
         vendor: dto.vendor?.trim() || null,
         staffId: dto.staffId ?? null,
@@ -140,10 +143,24 @@ export class ExpensesService {
         paidAmount,
         dueDate: dto.onCredit && dto.dueDate ? new Date(dto.dueDate) : null,
         paidDate: paymentStatus === 'PAID' ? new Date() : null,
+        // Seed the ledger with the up-front amount paid on a credit expense, so its
+        // payment history matches paidAmount from day one.
+        ...(dto.onCredit && paidAmount > 0 && {
+          payments: {
+            create: {
+              tenantId,
+              amount: paidAmount,
+              paymentMethod: dto.paymentMethod ?? null,
+              notes: 'Initial payment',
+              paidDate: expenseDate,
+            },
+          },
+        }),
       },
       include: {
         branch: { select: { id: true, name: true, code: true } },
         staff: { select: { id: true, fullName: true, role: true } },
+        payments: { orderBy: { paidDate: 'asc' } },
       },
     });
     await this.audit.record({
@@ -202,6 +219,7 @@ export class ExpensesService {
       include: {
         branch: { select: { id: true, name: true, code: true } },
         staff: { select: { id: true, fullName: true, role: true } },
+        payments: { orderBy: { paidDate: 'asc' } },
       },
     });
     await this.audit.record({
@@ -226,20 +244,35 @@ export class ExpensesService {
 
     const paid = Math.min(Number(existing.paidAmount) + dto.amount, amount);
     const status = deriveStatus(amount, paid);
+    const paidDate = dto.paidDate ? new Date(dto.paidDate) : new Date();
 
-    const updated = await this.prisma.expense.update({
-      where: { id },
-      data: {
-        paidAmount: paid,
-        paymentStatus: status as any,
-        paidDate: status === 'PAID' ? (dto.paidDate ? new Date(dto.paidDate) : new Date()) : null,
-        ...(dto.paymentMethod && { paymentMethod: dto.paymentMethod }),
-      },
-      include: {
-        branch: { select: { id: true, name: true, code: true } },
-        staff: { select: { id: true, fullName: true, role: true } },
-      },
-    });
+    // Record the payment in the ledger and roll the running total forward together.
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.expensePayment.create({
+        data: {
+          tenantId,
+          expenseId: id,
+          amount: dto.amount,
+          paymentMethod: dto.paymentMethod ?? null,
+          notes: dto.notes?.trim() || null,
+          paidDate,
+        },
+      }),
+      this.prisma.expense.update({
+        where: { id },
+        data: {
+          paidAmount: paid,
+          paymentStatus: status as any,
+          paidDate: status === 'PAID' ? paidDate : null,
+          ...(dto.paymentMethod && { paymentMethod: dto.paymentMethod }),
+        },
+        include: {
+          branch: { select: { id: true, name: true, code: true } },
+          staff: { select: { id: true, fullName: true, role: true } },
+          payments: { orderBy: { paidDate: 'asc' } },
+        },
+      }),
+    ]);
     await this.audit.record({
       tenantId, userId: this.tenantCtx.userId,
       action: 'EXPENSE_PAY', entity: 'expenses', entityId: id,
@@ -286,6 +319,15 @@ export class ExpensesService {
       outstanding: Number(((r.amount != null ? Number(r.amount) : 0) - (r.paidAmount != null ? Number(r.paidAmount) : 0)).toFixed(2)),
       dueDate: r.dueDate ?? null,
       paidDate: r.paidDate ?? null,
+      payments: Array.isArray(r.payments)
+        ? r.payments.map((p: any) => ({
+            id: p.id,
+            amount: p.amount != null ? Number(p.amount) : 0,
+            paymentMethod: p.paymentMethod ?? null,
+            notes: p.notes ?? null,
+            paidDate: p.paidDate,
+          }))
+        : [],
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

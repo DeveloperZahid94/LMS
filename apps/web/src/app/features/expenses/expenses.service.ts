@@ -8,6 +8,14 @@ export type ExpenseCategory =
 
 export type ExpensePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
 
+export interface ExpensePayment {
+  id: string;
+  amount: number;
+  paymentMethod: string | null;
+  notes: string | null;
+  paidDate: string;
+}
+
 export interface Expense {
   id: string;
   tenantId: string;
@@ -27,6 +35,7 @@ export interface Expense {
   outstanding: number;
   dueDate: string | null;
   paidDate: string | null;
+  payments: ExpensePayment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -63,6 +72,7 @@ export interface PayExpenseDto {
   amount: number;
   paymentMethod?: string;
   paidDate?: string;
+  notes?: string;
 }
 
 @Injectable({ providedIn: 'root' })

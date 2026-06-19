@@ -644,6 +644,7 @@ model Expense {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
   staff       User?    @relation("ExpenseStaff", fields: [staffId], references: [id], onDelete: SetNull)
+  payments    ExpensePayment[]                  // ledger of (possibly partial) payments made against this expense
 
   @@index([tenantId, expenseDate])
   @@index([tenantId, category])
@@ -651,6 +652,25 @@ model Expense {
   @@index([tenantId, staffId])
   @@index([tenantId, paymentStatus])
   @@map("expenses")
+}
+
+// Each partial/full payment recorded against a credit expense.
+// The expense's paidAmount is the running total; this is the itemised history.
+model ExpensePayment {
+  id            String   @id @default(uuid())
+  tenantId      String                           // denormalised for tenant-scoped queries
+  expenseId     String
+  amount        Decimal  @db.Decimal(10, 2)
+  paymentMethod String?                           // CASH | UPI | NETBANKING | CARD | CHEQUE
+  notes         String?
+  paidDate      DateTime @default(now())          // when this payment was made
+  createdAt     DateTime @default(now())
+
+  expense       Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, expenseId])
+  @@index([expenseId, paidDate])
+  @@map("expense_payments")
 }
 
 enum ExpenseCategory {

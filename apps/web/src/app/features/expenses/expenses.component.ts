@@ -148,7 +148,7 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               <td class="text-right font-semibold">₹{{ e.amount | number }}</td>
               <td class="text-right">
                 <div class="flex items-center justify-end gap-1">
-                  <button *ngIf="e.paymentStatus !== 'PAID'" class="btn btn-xs btn-success btn-outline" (click)="openPay(e)" title="Record a payment">₹ Pay</button>
+                  <button *ngIf="e.paymentStatus !== 'PAID'" class="btn btn-ghost btn-xs text-success" (click)="openPay(e)" title="Record a payment">💵</button>
                   <button class="btn btn-ghost btn-xs" (click)="openEdit(e)" title="Edit">✎</button>
                   <button class="btn btn-ghost btn-xs text-error" (click)="confirmDelete(e)" title="Delete">🗑</button>
                 </div>
@@ -254,13 +254,13 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
             </label>
           </div>
 
-          <!-- CREDIT / PAY-LATER -->
+          <!-- PAID vs ON CREDIT -->
           <div class="rounded-lg border border-base-300 p-3 bg-base-200/40">
-            <label class="label cursor-pointer justify-start gap-3 py-0">
-              <input type="checkbox" class="toggle toggle-sm toggle-warning" [(ngModel)]="form.onCredit" (ngModelChange)="onCreditToggle($event)" />
-              <span class="label-text text-sm font-medium">On credit (pay later)</span>
-              <span class="text-xs opacity-60">— record now, settle the balance later</span>
-            </label>
+            <div class="join w-full">
+              <input type="radio" name="payMode" class="join-item btn btn-sm flex-1" aria-label="✓ Paid in full" [checked]="!form.onCredit" (change)="setPayMode(false)" />
+              <input type="radio" name="payMode" class="join-item btn btn-sm flex-1" aria-label="⏳ On credit (pay later)" [checked]="form.onCredit" (change)="setPayMode(true)" />
+            </div>
+            <p class="text-xs opacity-60 mt-2">{{ form.onCredit ? 'Record the cost now and settle the balance later — a due date and any up-front payment are optional.' : 'The full amount has been paid.' }}</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3" *ngIf="form.onCredit">
               <label class="form-control">
                 <div class="label py-0.5"><span class="label-text text-sm">Paid up-front (₹)</span></div>
@@ -313,6 +313,20 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
         <h3 class="font-bold text-lg">₹ Record payment</h3>
         <p class="text-sm opacity-60 mb-3">Settling <strong>{{ e.title }}</strong> — outstanding <span class="text-warning font-semibold">₹{{ e.outstanding | number }}</span> of ₹{{ e.amount | number }}.</p>
 
+        <!-- PAYMENT HISTORY (prior partial payments) -->
+        <div class="rounded-lg bg-base-200/60 p-2 mb-3 text-sm" *ngIf="e.payments?.length">
+          <div class="text-xs uppercase tracking-wider opacity-60 mb-1">Payments so far</div>
+          <div class="space-y-1 max-h-32 overflow-auto">
+            <div class="flex items-center gap-2" *ngFor="let p of e.payments">
+              <span class="opacity-60 whitespace-nowrap">{{ p.paidDate | date:'dd/MM/yy' }}</span>
+              <span class="font-medium">₹{{ p.amount | number }}</span>
+              <span class="badge badge-ghost badge-xs" *ngIf="p.paymentMethod">{{ p.paymentMethod }}</span>
+              <span class="opacity-60 truncate" *ngIf="p.notes">· {{ p.notes }}</span>
+            </div>
+          </div>
+          <div class="text-xs opacity-60 mt-1 pt-1 border-t border-base-300">Paid ₹{{ e.paidAmount | number }} of ₹{{ e.amount | number }}</div>
+        </div>
+
         <div class="space-y-3">
           <label class="form-control">
             <div class="label py-0.5"><span class="label-text text-sm">Amount paid now (₹) *</span></div>
@@ -336,6 +350,10 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               <input class="input input-bordered input-sm" type="date" [(ngModel)]="payForm.paidDate" />
             </label>
           </div>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-sm">Notes (optional)</span></div>
+            <input class="input input-bordered input-sm" [(ngModel)]="payForm.notes" placeholder="e.g. cleared via UPI ref 1234" />
+          </label>
         </div>
 
         <div class="modal-action mt-3">
@@ -399,7 +417,7 @@ export class ExpensesComponent implements OnInit {
 
   // pay-a-credit-expense modal
   paying = signal<Expense | null>(null);
-  payForm: PayExpenseDto = { amount: 0, paymentMethod: '', paidDate: '' };
+  payForm: PayExpenseDto = { amount: 0, paymentMethod: '', paidDate: '', notes: '' };
 
   // pagination
   page = signal(1);
@@ -546,15 +564,16 @@ export class ExpensesComponent implements OnInit {
   creditOutstanding(): number {
     return Math.max(0, (Number(this.form.amount) || 0) - (Number(this.form.paidAmount) || 0));
   }
-  /** When credit is switched off, the expense is paid in full — reset the up-front amount. */
-  onCreditToggle(on: boolean) {
-    if (!on) { this.form.paidAmount = 0; this.form.dueDate = ''; }
+  /** Switch between "paid in full" and "on credit"; clear the credit fields when paid. */
+  setPayMode(onCredit: boolean) {
+    this.form.onCredit = onCredit;
+    if (!onCredit) { this.form.paidAmount = 0; this.form.dueDate = ''; }
   }
 
   // ----- pay a credit expense -----
   openPay(e: Expense) {
     this.paying.set(e);
-    this.payForm = { amount: e.outstanding, paymentMethod: e.paymentMethod ?? '', paidDate: this.todayIso() };
+    this.payForm = { amount: e.outstanding, paymentMethod: e.paymentMethod ?? '', paidDate: this.todayIso(), notes: '' };
     this.blur();
   }
   payValid(e: Expense): boolean {
@@ -567,6 +586,7 @@ export class ExpensesComponent implements OnInit {
       amount: Number(this.payForm.amount),
       paymentMethod: this.payForm.paymentMethod || undefined,
       paidDate: this.payForm.paidDate || undefined,
+      notes: this.payForm.notes?.trim() || undefined,
     };
     this.busy.set(true);
     this.api.pay(e.id, payload).subscribe({

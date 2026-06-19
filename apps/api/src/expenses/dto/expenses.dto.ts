@@ -110,6 +110,10 @@ export class PayExpenseDto {
   @IsOptional()
   @IsDateString()
   paidDate?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class ExpenseListQueryDto {
