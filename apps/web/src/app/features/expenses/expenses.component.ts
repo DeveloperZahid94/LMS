@@ -206,16 +206,46 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
             <input class="input input-bordered input-sm" [(ngModel)]="form.title" placeholder="e.g. April shop rent" />
           </label>
 
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <label class="form-control sm:col-span-2">
+          <!-- PAYMENT: decide mode + see bill vs pay up-front before anything else -->
+          <div class="rounded-lg border border-base-300 p-3 bg-base-200/40 space-y-3">
+            <div class="join w-full">
+              <input type="radio" name="payMode" class="join-item btn btn-sm flex-1" aria-label="✓ Paid in full" [checked]="!form.onCredit" (change)="setPayMode(false)" />
+              <input type="radio" name="payMode" class="join-item btn btn-sm flex-1" aria-label="⏳ On credit (pay later)" [checked]="form.onCredit" (change)="setPayMode(true)" />
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <label class="form-control">
+                <div class="label py-0.5"><span class="label-text text-sm">Bill amount (₹) *</span></div>
+                <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [(ngModel)]="form.amount" placeholder="0" />
+              </label>
+              <!-- Pay now: editable on credit; auto (bill − any advance) when paid in full -->
+              <label class="form-control" *ngIf="form.onCredit">
+                <div class="label py-0.5"><span class="label-text text-sm">Pay now (₹)</span></div>
+                <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [max]="payCap()" [(ngModel)]="form.paidAmount" placeholder="0" />
+              </label>
+              <label class="form-control" *ngIf="!form.onCredit">
+                <div class="label py-0.5"><span class="label-text text-sm">Pay now (₹)</span></div>
+                <input class="input input-bordered input-sm bg-base-200" type="text" [value]="'₹' + (payNowFull() | number)" disabled />
+              </label>
+              <label class="form-control" *ngIf="form.onCredit">
+                <div class="label py-0.5"><span class="label-text text-sm">Due date</span></div>
+                <input class="input input-bordered input-sm" type="date" [(ngModel)]="form.dueDate" />
+              </label>
+            </div>
+
+            <div class="text-xs flex flex-wrap gap-x-4 gap-y-1">
+              <span *ngIf="advanceUse() > 0" class="text-success">Vendor advance applies: −₹{{ advanceUse() | number }}</span>
+              <span *ngIf="form.onCredit" class="text-warning font-medium">Outstanding after this: ₹{{ creditOutstanding() | number }}</span>
+              <span *ngIf="!form.onCredit" class="opacity-60">Settled in full{{ advanceUse() > 0 ? ' (advance + cash)' : '' }}.</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="form-control">
               <div class="label py-0.5"><span class="label-text text-sm">Category *</span></div>
               <select class="select select-bordered select-sm" [(ngModel)]="form.category">
                 <option *ngFor="let c of categories" [value]="c.value">{{ c.icon }} {{ c.label }}</option>
               </select>
-            </label>
-            <label class="form-control">
-              <div class="label py-0.5"><span class="label-text text-sm">Amount (₹) *</span></div>
-              <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [(ngModel)]="form.amount" placeholder="0" />
             </label>
             <label class="form-control">
               <div class="label py-0.5"><span class="label-text text-sm">Date *</span></div>
@@ -264,26 +294,6 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
                 <option *ngFor="let s of staff()" [value]="s.id">{{ s.fullName }}</option>
               </select>
             </label>
-          </div>
-
-          <!-- PAID vs ON CREDIT -->
-          <div class="rounded-lg border border-base-300 p-3 bg-base-200/40">
-            <div class="join w-full">
-              <input type="radio" name="payMode" class="join-item btn btn-sm flex-1" aria-label="✓ Paid in full" [checked]="!form.onCredit" (change)="setPayMode(false)" />
-              <input type="radio" name="payMode" class="join-item btn btn-sm flex-1" aria-label="⏳ On credit (pay later)" [checked]="form.onCredit" (change)="setPayMode(true)" />
-            </div>
-            <p class="text-xs opacity-60 mt-2">{{ form.onCredit ? 'Record the cost now and settle the balance later — a due date and any up-front payment are optional.' : 'The full amount has been paid.' }}</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3" *ngIf="form.onCredit">
-              <label class="form-control">
-                <div class="label py-0.5"><span class="label-text text-sm">Paid up-front (₹)</span></div>
-                <input class="input input-bordered input-sm" type="number" min="0" step="0.01" [max]="form.amount || null" [(ngModel)]="form.paidAmount" placeholder="0" />
-                <div class="label py-0.5"><span class="label-text-alt text-xs text-warning">Outstanding: ₹{{ creditOutstanding() | number }}</span></div>
-              </label>
-              <label class="form-control">
-                <div class="label py-0.5"><span class="label-text text-sm">Due date</span></div>
-                <input class="input input-bordered input-sm" type="date" [(ngModel)]="form.dueDate" />
-              </label>
-            </div>
           </div>
 
           <label class="form-control">
@@ -636,9 +646,22 @@ export class ExpensesComponent implements OnInit {
     if (e.paymentStatus === 'PARTIAL') return 'badge-warning';
     return 'badge-error';
   }
-  /** Live outstanding shown beside the "paid up-front" field in the editor. */
+  /** Vendor advance that will auto-apply to a NEW expense (capped at the bill). */
+  advanceUse(): number {
+    if (this.editingId()) return 0;   // advance is applied once, at creation
+    return Math.min(this.selectedVendorAdvance(), Number(this.form.amount) || 0);
+  }
+  /** Cash needed now when paying in full: bill − advance. */
+  payNowFull(): number {
+    return Math.max(0, (Number(this.form.amount) || 0) - this.advanceUse());
+  }
+  /** Max cash the user can enter as "pay now" on a credit expense (after advance). */
+  payCap(): number {
+    return this.payNowFull();
+  }
+  /** Live outstanding after advance + cash paid now (credit mode). */
   creditOutstanding(): number {
-    return Math.max(0, (Number(this.form.amount) || 0) - (Number(this.form.paidAmount) || 0));
+    return Math.max(0, (Number(this.form.amount) || 0) - this.advanceUse() - (Number(this.form.paidAmount) || 0));
   }
   /** Switch between "paid in full" and "on credit"; clear the credit fields when paid. */
   setPayMode(onCredit: boolean) {
