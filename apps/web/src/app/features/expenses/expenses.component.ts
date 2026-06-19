@@ -146,7 +146,16 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
                   <span class="opacity-50" *ngIf="e.dueDate"> · {{ e.dueDate | date:'dd/MM/yy' }}</span>
                 </div>
               </td>
-              <td class="text-right font-semibold">₹{{ e.amount | number }}</td>
+              <td class="text-right font-semibold whitespace-nowrap">
+                ₹{{ e.amount | number }}
+                <div class="text-xs font-normal" *ngIf="e.advanceApplied > 0">
+                  <span class="text-info">−₹{{ e.advanceApplied | number }} adv</span>
+                  <span class="opacity-50"> · net ₹{{ (e.amount - e.advanceApplied) | number }}</span>
+                </div>
+                <div class="text-xs font-normal text-success" *ngIf="e.paidAmount > 0 && e.advanceApplied <= 0 && e.paymentStatus !== 'PAID'">
+                  paid ₹{{ e.paidAmount | number }}
+                </div>
+              </td>
               <td class="text-right">
                 <div class="flex items-center justify-end gap-1">
                   <button *ngIf="e.paymentStatus !== 'PAID'" class="btn btn-ghost btn-xs text-success" (click)="openPay(e)" title="Record a payment">💵</button>
@@ -169,7 +178,10 @@ interface CategoryOption { value: ExpenseCategory; label: string; icon: string; 
               <td class="text-right text-xs">
                 <span *ngIf="filteredOutstanding() > 0" class="text-warning">₹{{ filteredOutstanding() | number }} due</span>
               </td>
-              <td class="text-right">₹{{ filteredTotal() | number }}</td>
+              <td class="text-right">
+                ₹{{ filteredTotal() | number }}
+                <div class="text-xs font-normal text-info" *ngIf="filteredAdvance() > 0">incl. ₹{{ filteredAdvance() | number }} from advances</div>
+              </td>
               <td></td>
             </tr>
           </tfoot>
@@ -502,6 +514,7 @@ export class ExpensesComponent implements OnInit {
 
   filteredTotal = computed(() => this.filtered().reduce((sum, e) => sum + Number(e.amount ?? 0), 0));
   filteredOutstanding = computed(() => this.filtered().reduce((sum, e) => sum + Number(e.outstanding ?? 0), 0));
+  filteredAdvance = computed(() => this.filtered().reduce((sum, e) => sum + Number(e.advanceApplied ?? 0), 0));
   totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
   paged = computed(() => {
     const p = Math.min(this.page(), this.totalPages());
