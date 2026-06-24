@@ -129,7 +129,7 @@ interface AttendanceRow {
                 <div class="font-semibold flex items-center gap-2 mb-3"><span>📍</span> Accommodation</div>
                 <div *ngIf="summary()?.allocations?.length; else noAccom" class="space-y-3">
                   <div *ngFor="let a of summary()!.allocations" class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm border-b border-base-200 last:border-0 pb-3 last:pb-0">
-                    <div><div class="opacity-60 text-xs">Type</div><div class="font-medium">{{ a.type === 'PG' ? 'PG Room' : 'Library Cabin' }}</div></div>
+                    <div><div class="opacity-60 text-xs">Type</div><div class="font-medium">{{ a.type === 'PG' ? 'PG Room' : a.type === 'TIFFIN' ? 'Tiffin Service' : 'Library Cabin' }}</div></div>
                     <div><div class="opacity-60 text-xs">Allocation</div><div class="font-medium text-primary">{{ a.label }}</div></div>
                     <div><div class="opacity-60 text-xs">Monthly rate</div><div class="font-medium">₹{{ a.monthlyRate | number }}</div></div>
                     <div><div class="opacity-60 text-xs">Paid until</div><div class="font-semibold">{{ a.nextDueDate ? (a.nextDueDate | date:'dd/MM/yyyy') : '—' }}</div></div>

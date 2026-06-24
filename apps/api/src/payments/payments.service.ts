@@ -256,6 +256,14 @@ export class PaymentsService {
         monthlyRate: a.monthlyRate ? Number(a.monthlyRate) : 0,
         nextDueDate: a.nextDueDate,
       })),
+      ...tiffins.map((t: any) => ({
+        type: 'TIFFIN' as const,
+        label: `${t.mealType === 'VEG' ? 'Veg' : 'Non-veg'} · ${
+          t.mealPlan === 'LUNCH' ? 'Lunch' : t.mealPlan === 'DINNER' ? 'Dinner' : 'Lunch + Dinner'
+        }${t.status === 'PAUSED' ? ' (paused)' : ''}`,
+        monthlyRate: Number(t.monthlyRate ?? 0),
+        nextDueDate: t.nextDueDate,
+      })),
     ];
     const monthlyTotal = allocations.reduce((s, a) => s + a.monthlyRate, 0);
 

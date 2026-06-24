@@ -46,7 +46,7 @@ export interface PaymentHistoryItem {
 }
 
 export interface PaymentAllocation {
-  type: 'SEAT' | 'PG';
+  type: 'SEAT' | 'PG' | 'TIFFIN';
   label: string;
   monthlyRate: number;
   nextDueDate: string | null;

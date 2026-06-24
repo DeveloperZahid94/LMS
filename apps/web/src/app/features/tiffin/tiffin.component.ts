@@ -56,8 +56,8 @@ type StatusFilter = 'ALL' | TiffinStatus;
       <div class="card-body p-2 flex flex-row flex-wrap items-center gap-2">
         <label class="input input-bordered input-sm flex items-center gap-2 flex-1 min-w-[260px]">
           <span class="opacity-50">🔍</span>
-          <input type="text" class="grow" [(ngModel)]="search" (ngModelChange)="page.set(1)" placeholder="Search student name, code, phone or delivery person…" />
-          <button *ngIf="search" class="opacity-60 hover:opacity-100" (click)="search=''" title="Clear">✕</button>
+          <input type="text" class="grow" [ngModel]="search()" (ngModelChange)="search.set($event); page.set(1)" placeholder="Search student name, code, phone or delivery person…" />
+          <button *ngIf="search()" class="opacity-60 hover:opacity-100" (click)="search.set('')" title="Clear">✕</button>
         </label>
         <div class="join">
           <button *ngFor="let f of statusFilters" class="join-item btn btn-sm"
@@ -384,7 +384,7 @@ export class TiffinComponent implements OnInit {
   loading = signal(false);
   busy = signal(false);
 
-  search = '';
+  search = signal('');
   statusFilter = signal<StatusFilter>('ALL');
   statusFilters: { value: StatusFilter; label: string }[] = [
     { value: 'ALL', label: 'All' },
@@ -414,7 +414,7 @@ export class TiffinComponent implements OnInit {
   pageSize = 10;
 
   filtered = computed(() => {
-    const q = this.search.trim().toLowerCase();
+    const q = this.search().trim().toLowerCase();
     const sf = this.statusFilter();
     return this.data().filter((t) => {
       if (sf !== 'ALL' && t.status !== sf) return false;
@@ -526,7 +526,7 @@ export class TiffinComponent implements OnInit {
     const sf = this.statusFilter();
     const meta = {
       title: 'Tiffin subscriptions',
-      subtitle: `${sf === 'ALL' ? 'All statuses' : sf}${this.search.trim() ? ` · search: "${this.search.trim()}"` : ''} · ${rows.length} record${rows.length === 1 ? '' : 's'}`,
+      subtitle: `${sf === 'ALL' ? 'All statuses' : sf}${this.search().trim() ? ` · search: "${this.search().trim()}"` : ''} · ${rows.length} record${rows.length === 1 ? '' : 's'}`,
       fileSlug: 'tiffin-subscriptions',
     };
     if (kind === 'csv') exportCsv(rows, cols, meta);
