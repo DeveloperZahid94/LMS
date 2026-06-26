@@ -147,15 +147,18 @@ interface StepDef {
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Full name *</span></div>
-                    <input class="input input-bordered" formControlName="fullName" placeholder="ex. Zahid Anjum" />
+                    <input class="input input-bordered" [class.input-error]="personalError('fullName')" formControlName="fullName" placeholder="ex. Zahid Anjum" />
+                    <div *ngIf="personalError('fullName')" class="label py-0.5"><span class="label-text-alt text-error">{{ personalError('fullName') }}</span></div>
                   </label>
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Phone *</span></div>
-                    <input class="input input-bordered" formControlName="phone" placeholder="ex. 9876543210" inputmode="tel" />
+                    <input class="input input-bordered" [class.input-error]="personalError('phone')" formControlName="phone" placeholder="ex. 9876543210" inputmode="tel" />
+                    <div *ngIf="personalError('phone')" class="label py-0.5"><span class="label-text-alt text-error">{{ personalError('phone') }}</span></div>
                   </label>
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Email</span></div>
-                    <input class="input input-bordered" type="email" formControlName="email" placeholder="ex. zahid@email.com" />
+                    <input class="input input-bordered" [class.input-error]="personalError('email')" type="email" formControlName="email" placeholder="ex. zahid@email.com" />
+                    <div *ngIf="personalError('email')" class="label py-0.5"><span class="label-text-alt text-error">{{ personalError('email') }}</span></div>
                   </label>
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Date of birth</span></div>
@@ -183,9 +186,10 @@ interface StepDef {
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Branch *</span></div>
-                    <select class="select select-bordered" formControlName="branchId">
+                    <select class="select select-bordered" [class.select-error]="personalError('branchId')" formControlName="branchId">
                       <option *ngFor="let b of branches()" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
                     </select>
+                    <div *ngIf="personalError('branchId')" class="label py-0.5"><span class="label-text-alt text-error">{{ personalError('branchId') }}</span></div>
                   </label>
                   <label class="form-control">
                     <div class="label py-1 justify-between">
@@ -212,7 +216,8 @@ interface StepDef {
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3">
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Aadhaar number</span></div>
-                    <input class="input input-bordered" formControlName="aadhaarNumber" placeholder="ex. 1234 5678 9012" maxlength="12" inputmode="numeric" />
+                    <input class="input input-bordered" [class.input-error]="personalError('aadhaarNumber')" formControlName="aadhaarNumber" placeholder="ex. 1234 5678 9012" maxlength="12" inputmode="numeric" />
+                    <div *ngIf="personalError('aadhaarNumber')" class="label py-0.5"><span class="label-text-alt text-error">{{ personalError('aadhaarNumber') }}</span></div>
                   </label>
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Voter ID (EPIC)</span></div>
@@ -235,7 +240,8 @@ interface StepDef {
                   </label>
                   <label class="form-control">
                     <div class="label py-1"><span class="label-text font-medium">Emergency contact</span></div>
-                    <input class="input input-bordered" formControlName="emergencyContact" placeholder="ex. 9876543210" inputmode="tel" />
+                    <input class="input input-bordered" [class.input-error]="personalError('emergencyContact')" formControlName="emergencyContact" placeholder="ex. 9876543210" inputmode="tel" />
+                    <div *ngIf="personalError('emergencyContact')" class="label py-0.5"><span class="label-text-alt text-error">{{ personalError('emergencyContact') }}</span></div>
                   </label>
                 </div>
               </section>
@@ -1116,7 +1122,7 @@ export class StudentFormComponent implements OnInit, OnDestroy {
     personal: this.fb.group({
       fullName: ['', [Validators.required, Validators.minLength(2)]],
       phone: ['', [Validators.required, Validators.pattern(/^\+?\d{8,15}$/)]],
-      email: [''],
+      email: ['', [Validators.email]],
       dateOfBirth: [''],
       gender: [null as Gender | null],
       status: [StudentStatus.ACTIVE],
@@ -1426,46 +1432,114 @@ export class StudentFormComponent implements OnInit, OnDestroy {
   }
 
   // ----- Validation per step -----
-  isStepValid(): boolean {
-    if (this.id()) return this.personalGroup.valid;
-    const step = this.currentStep();
-    if (step === 0) return this.personalGroup.valid;
+  /** Friendly labels for the validated controls in the personal-info group. */
+  private personalFieldLabels: Record<string, string> = {
+    fullName: 'Full name',
+    phone: 'Phone',
+    branchId: 'Branch',
+    email: 'Email',
+    aadhaarNumber: 'Aadhaar number',
+    emergencyContact: 'Emergency contact',
+  };
+
+  /** Inline validation message for a personal-info field, or '' when it's valid / untouched. */
+  personalError(name: string): string {
+    const c = this.personalGroup.get(name);
+    if (!c || c.valid || !(c.touched || c.dirty)) return '';
+    const label = this.personalFieldLabels[name] ?? 'This field';
+    if (c.errors?.['required']) return `${label} is required`;
+    if (c.errors?.['minlength']) return `${label} is too short`;
+    if (c.errors?.['email']) return 'Enter a valid email address';
+    if (c.errors?.['pattern']) {
+      if (name === 'phone' || name === 'emergencyContact') return 'Enter a valid phone number (8–15 digits)';
+      if (name === 'aadhaarNumber') return 'Aadhaar must be exactly 12 digits';
+    }
+    return `${label} is invalid`;
+  }
+
+  /**
+   * Returns the list of invalid / missing field labels for a given step.
+   * Pure (no side effects) so it's safe to call from `[disabled]` bindings.
+   */
+  stepErrors(step: number): string[] {
+    if (this.id() && step !== 0) {
+      // Edit/draft-completion: accommodation & payment are optional add-ons, so
+      // only the personal step is mandatory.
+      return [];
+    }
+    if (step === 0) {
+      return Object.entries(this.personalFieldLabels)
+        .filter(([name]) => this.personalGroup.get(name)?.invalid)
+        .map(([, label]) => label);
+    }
     if (step === 1) {
+      const errs: string[] = [];
       // At least one service must be chosen — accommodation, tiffin, or both.
-      if (!this.accomType() && !this.hasTiffin()) return false;
+      if (!this.accomType() && !this.hasTiffin()) {
+        errs.push('Pick at least one service (cabin, PG or tiffin)');
+        return errs;
+      }
       if (this.hasCabin()) {
         const c = this.cabinGroup.value;
-        if (!c.seatId || !c.shift || !c.joinDate || !c.dueDate || !c.monthlyFee) return false;
+        if (!c.seatId) errs.push('Cabin: select a cabin');
+        if (!c.shift) errs.push('Cabin: shift');
+        if (!c.joinDate) errs.push('Cabin: join date');
+        if (!c.dueDate) errs.push('Cabin: due date');
+        if (!c.monthlyFee) errs.push('Cabin: monthly fee');
       }
       if (this.hasPg()) {
         const p = this.pgGroup.value;
-        if (!p.roomId || !p.bedNumber || !p.joinDate || !p.dueDate || !p.monthlyFee) return false;
+        if (!p.roomId) errs.push('PG: select a room');
+        if (!p.bedNumber) errs.push('PG: pick a bed');
+        if (!p.joinDate) errs.push('PG: join date');
+        if (!p.dueDate) errs.push('PG: due date');
+        if (!p.monthlyFee) errs.push('PG: monthly fee');
       }
       if (this.hasTiffin()) {
         const t = this.tiffinGroup.value;
-        if (!t.mealType || !t.mealPlan || !t.joinDate || !t.dueDate || !t.monthlyFee) return false;
+        if (!t.mealType) errs.push('Tiffin: meal type');
+        if (!t.mealPlan) errs.push('Tiffin: meals per day');
+        if (!t.joinDate) errs.push('Tiffin: join date');
+        if (!t.dueDate) errs.push('Tiffin: due date');
+        if (!t.monthlyFee) errs.push('Tiffin: monthly fee');
       }
-      return true;
+      return errs;
     }
     if (step === 2) {
+      const errs: string[] = [];
       const p = this.paymentGroup.value;
-      if (!p.paymentDate) return false;
-      if (this.payMethod() !== 'CASH' && !p.transactionRef) return false;
-      if (this.hasCabin() && p.cabinInitial == null) return false;
-      if (this.hasPg() && p.pgInitial == null) return false;
-      if (this.hasTiffin() && p.tiffinInitial == null) return false;
-      return true;
+      if (!p.paymentDate) errs.push('Payment date');
+      if (this.payMethod() === 'UPI' && !p.transactionRef) errs.push('UPI transaction ID');
+      if (this.payMethod() === 'BANK_TRANSFER' && !p.transactionRef) errs.push('Bank reference / UTR');
+      if (this.hasCabin() && p.cabinInitial == null) errs.push('Cabin payment now');
+      if (this.hasPg() && p.pgInitial == null) errs.push('PG payment now');
+      if (this.hasTiffin() && p.tiffinInitial == null) errs.push('Tiffin payment now');
+      return errs;
     }
-    return true; // Step 4 (documents) is fully optional.
+    return []; // Step 4 (documents) is fully optional.
+  }
+
+  isStepValid(): boolean {
+    return this.stepErrors(this.currentStep()).length === 0;
+  }
+
+  /** Mark a step's controls touched so inline errors show, then report missing fields via a toast. */
+  private reportStepErrors(step: number, errs: string[]) {
+    if (step === 0) this.personalGroup.markAllAsTouched();
+    const preview = errs.slice(0, 4).join(', ');
+    const more = errs.length > 4 ? ` and ${errs.length - 4} more` : '';
+    this.toast.warning(`Please fix: ${preview}${more}.`);
   }
 
   next() {
-    if (!this.isStepValid()) {
-      this.toast.warning('Please complete the required fields on this step.');
+    const step = this.currentStep();
+    const errs = this.stepErrors(step);
+    if (errs.length) {
+      this.reportStepErrors(step, errs);
       return;
     }
-    if (this.currentStep() < this.steps().length - 1) {
-      this.currentStep.set(this.currentStep() + 1);
+    if (step < this.steps().length - 1) {
+      this.currentStep.set(step + 1);
     }
   }
   prev() {
@@ -1672,11 +1746,17 @@ export class StudentFormComponent implements OnInit, OnDestroy {
 
   submit(asDraft = false) {
     if (this.id()) return this.completeDraft(asDraft);
-    if (!this.personalGroup.valid) {
-      this.personalGroup.markAllAsTouched();
-      this.toast.warning('Personal info has missing or invalid fields.');
-      this.currentStep.set(0);
-      return;
+    // A draft only needs valid personal info; a full registration needs the
+    // accommodation and payment steps too. Validate each mandatory step and
+    // jump to the first one with a problem, naming the offending fields.
+    const stepsToCheck = asDraft ? [0] : [0, 1, 2];
+    for (const step of stepsToCheck) {
+      const errs = this.stepErrors(step);
+      if (errs.length) {
+        this.currentStep.set(step);
+        this.reportStepErrors(step, errs);
+        return;
+      }
     }
     this.saving.set(true);
 
